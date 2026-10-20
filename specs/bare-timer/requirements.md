@@ -76,7 +76,8 @@ kernel so that I can try each handler.
 5. ON aarch64, WHEN `u`, `p` or `a` is read, THE kernel SHALL say what it is
    about to do and cause an undefined instruction (`udf #0`), a data abort
    (a read at `0x09fff000`, a hole in the device map) or an alignment fault
-   (a word read at `0x44000001`).
+   (a word read at `0x44000001` after turning on alignment checking with
+   `SCTLR_EL1.A`).
 6. WHEN Enter is read, THE kernel SHALL ignore it; WHEN any other key is
    read, THE kernel SHALL print `key 'K' does nothing;` and the key list.
 

@@ -35,6 +35,11 @@ faults --> handler: recordFault(...), unreachable --> @panic_handler --> report,
 | Sleep | `hlt` | `wfi` |
 | Exit | `isa-debug-exit` | semihosting `SYS_EXIT` |
 
+The alignment fault turns on `SCTLR_EL1.A` first: with the MMU off all
+memory is Device memory, and whether a misaligned Device access faults
+without that bit differs between QEMU versions (8.2 lets it through, 10.1
+faults).
+
 The AArch64 frame type is named `ExceptionFrame`: in Loup 1.26.0
 `InterruptFrame` is a built-in with the x86_64 fields, and importing a
 struct of that name with other fields is an error. The AArch64 `@interrupt`

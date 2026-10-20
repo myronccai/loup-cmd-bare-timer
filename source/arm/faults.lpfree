@@ -12,8 +12,7 @@ pub const TRAP_NAME: string = "svc -> SVC (class 0x15)";
 # A hole in the virt machine's device map, between the platform devices
 # (0x09000000-0x090fffff) and the virtio transports (0x0a000000).
 const HOLE: uint64 = 0x09fff000u64;
-# Free RAM, plus one: a misaligned word. With the MMU off every data access
-# is to Device memory, which must be aligned.
+# Free RAM, plus one: a misaligned word.
 const MISALIGNED: uint64 = 0x44000001u64;
 
 # svc #0, as its encoding (the default back end's assembler lacks it).
@@ -30,7 +29,18 @@ func dataAbort(): uint8 {
     return Volatile[uint8].at(HOLE).read();
 }
 
+# Turns on alignment checking (SCTLR_EL1.A, bit 1), then reads a word at an
+# odd address. With the check on, every misaligned access faults; without
+# it, whether a misaligned access to Device memory faults (the MMU is off,
+# so all memory is Device memory) depends on the CPU, and on QEMU's version.
 func alignmentFault(): uint32 {
+    asm {
+        "mrs x9, sctlr_el1"
+        "orr x9, x9, #2"
+        "msr sctlr_el1, x9"
+        "isb"
+        clobbers: ["x9", "memory"]
+    }
     return Volatile[uint32, Little].at(MISALIGNED).read();
 }
 
@@ -45,7 +55,7 @@ pub func provokeFault(key: uint8): bool {
         puts("\n");
         let _byte = dataAbort();
     } else if (key == 0x61u8) {                # a
-        puts("reading a word at the misaligned address ");
+        puts("alignment checks on; reading a word at ");
         putHex(MISALIGNED);
         puts("\n");
         let _word = alignmentFault();

@@ -5,6 +5,6 @@ timer: CNTV at 100 Hz (625000 counts of 62500000 Hz)
 keys: t trap, u undefined instruction, p data abort, a alignment fault, q quit
 interrupts on
 heartbeat 1: uptime 00:00:01 (100 ticks)
-reading a word at the misaligned address 0x44000001
+alignment checks on; reading a word at 0x44000001
 PANIC: reached an `unreachable` expression at arm/isr.lpfree:67
   fault: data abort (class 0x25), esr 0x96000021, pc 0xN, address 0x44000001

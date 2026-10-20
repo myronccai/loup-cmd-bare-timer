@@ -117,13 +117,14 @@ quit after 264 ticks and 1 trap(s)
 QEMU exit status 0
 ```
 
-and `a`, a word read at an odd address (QEMU exits with 2):
+and `a`, a word read at an odd address with alignment checking on (QEMU
+exits with 2):
 
 ```text
 heartbeat 1: uptime 00:00:01 (100 ticks)
-reading a word at the misaligned address 0x44000001
+alignment checks on; reading a word at 0x44000001
 PANIC: reached an `unreachable` expression at arm/isr.lpfree:67
-  fault: data abort (class 0x25), esr 0x96000021, pc 0x40082ef8, address 0x44000001
+  fault: data abort (class 0x25), esr 0x96000021, pc 0x40082f08, address 0x44000001
 ```
 
 ### Keys
@@ -135,7 +136,7 @@ PANIC: reached an `unreachable` expression at arm/isr.lpfree:67
 | `u` | `ud2`: #UD, vector 6 | `udf #0`: class 0x00 | panic |
 | `g` | load from a non-canonical address: #GP, vector 13 | | panic |
 | `p` | read at `0x80000000`, outside the identity map: #PF, vector 14, address from `cr2` | read at `0x09fff000`, a hole in the device map: data abort, class 0x25, address from `FAR_EL1` | panic |
-| `a` | | a word read at `0x44000001`: data abort (alignment), class 0x25 | panic |
+| `a` | | sets `SCTLR_EL1.A` (alignment checking), then reads a word at `0x44000001`: data abort (alignment), class 0x25 | panic |
 | `q` | quit | quit | status 0 |
 
 On x86-64 a double fault (#DF, vector 8) has a handler too; no key provokes
