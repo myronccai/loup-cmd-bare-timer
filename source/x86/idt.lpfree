@@ -1,0 +1,65 @@
+@mode(freestanding)
+
+# The interrupt descriptor table: 256 gates of 16 bytes, loaded with lidt.
+
+# What an x86_64 CPU pushes on interrupt entry (after the error code, which
+# the @interrupt trampoline passes separately).
+@repr(C)
+pub struct InterruptFrame {
+    pub let rip: uint64;
+    pub let cs: uint64;
+    pub let rflags: uint64;
+    pub let rsp: uint64;
+    pub let ss: uint64;
+}
+
+const KERNEL_CS: uint64 = 0x08u64;          # the code segment the entry stub loads
+const GATE_INTERRUPT: uint64 = 0x8Eu64;     # present, DPL 0, 64-bit interrupt gate
+const GATE_TRAP: uint64 = 0x8Fu64;          # the same, but interrupts stay enabled
+
+# The table gets a section of its own, which the linker script aligns to a
+# page, and the pseudo-descriptor lidt reads (limit:16, base:64).
+@section(".idt")
+var idt: buffer[uint64, 512];
+var idtr: buffer[uint64, 2];
+
+var gatesSet: int = 0;
+
+func setGateWith(vector: int, handler: uint64, kind: uint64): void {
+    let low = (handler & 0xFFFFu64) | (KERNEL_CS << 16u64) | (kind << 40u64)
+        | (((handler >> 16u64) & 0xFFFFu64) << 48u64);
+    idt[vector * 2] = low;
+    idt[vector * 2 + 1] = handler >> 32u64;
+    gatesSet = gatesSet + 1;
+}
+
+# An interrupt gate: the CPU masks interrupts while the handler runs.
+pub func setInterruptGate(vector: int, handler: uint64): void {
+    setGateWith(vector, handler, GATE_INTERRUPT);
+}
+
+# A trap gate: interrupts stay as they were (used for int3).
+pub func setTrapGate(vector: int, handler: uint64): void {
+    setGateWith(vector, handler, GATE_TRAP);
+}
+
+pub func gateCount(): int {
+    return gatesSet;
+}
+
+pub func idtAddress(): uint64 {
+    return addressOf(idt);
+}
+
+# Through a parameter, so no subscript here has a constant index.
+func setIdtr(i: int, v: uint64): void {
+    idtr[i] = v;
+}
+
+pub func loadIdt(): void {
+    let base = addressOf(idt);
+    setIdtr(0, 4095u64 | (base << 16u64));
+    setIdtr(1, base >> 48u64);
+    let p = addressOf(idtr);
+    asm { "lidt [rax]" in: "rax" = p clobbers: ["memory"] }
+}

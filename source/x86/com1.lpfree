@@ -1,0 +1,40 @@
+@mode(freestanding)
+
+# The 16550 UART at COM1 (I/O port 0x3F8): polled output, and an interrupt
+# (IRQ 4) for every byte received.
+
+from x86.port import (outb, inb);
+
+const COM1: uint16 = 0x3F8u16;
+const LSR_DATA_READY: uint8 = 0x01u8;
+const LSR_TX_EMPTY: uint8 = 0x20u8;
+
+# 115200 baud, 8N1, the "data received" interrupt on, and OUT2 set: on a PC
+# OUT2 connects the UART's interrupt line to the 8259. The FIFO control
+# register is left alone (enabling or clearing the FIFOs drops input that
+# has already arrived).
+pub func com1Init(): void {
+    outb(COM1 + 1u16, 0x00u8);    # no UART interrupts while configuring
+    outb(COM1 + 3u16, 0x80u8);    # DLAB on: the next two writes set the divisor
+    outb(COM1 + 0u16, 0x01u8);    # divisor 1: 115200 baud
+    outb(COM1 + 1u16, 0x00u8);
+    outb(COM1 + 3u16, 0x03u8);    # DLAB off; 8 data bits, no parity, 1 stop bit
+    outb(COM1 + 4u16, 0x0Bu8);    # DTR, RTS, OUT2
+    outb(COM1 + 1u16, 0x01u8);    # interrupt when a byte has been received
+}
+
+@interruptSafe
+pub func com1HasByte(): bool {
+    return (inb(COM1 + 5u16) & LSR_DATA_READY) != 0u8;
+}
+
+# Reading the byte also clears the UART's interrupt.
+@interruptSafe
+pub func com1ReadByte(): uint8 {
+    return inb(COM1);
+}
+
+pub func com1Put(c: uint8): void {
+    while ((inb(COM1 + 5u16) & LSR_TX_EMPTY) == 0u8) { }
+    outb(COM1, c);
+}

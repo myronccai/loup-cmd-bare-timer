@@ -1,0 +1,11 @@
+@mode(freestanding)
+
+# Name, version and exit statuses of the image.
+
+pub const APP_NAME: string = "loup-cmd-bare-timer";
+pub const APP_VERSION: string = "0.1.0";
+
+# The status the image reports when it stops. It writes `0x10 | status` to
+# isa-debug-exit, so QEMU exits with 33 (quit) or 37 (panic).
+pub const STATUS_OK: uint8 = 0u8;
+pub const STATUS_PANIC: uint8 = 2u8;

@@ -14,6 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install lld and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lld qemu-system-x86 qemu-system-arm
+
       - name: Install Loup ${{ env.LOUP_VERSION }}
         run: |
           curl -fsSL "https://github.com/code-craft-ai-company/loup-releases/releases/download/v${LOUP_VERSION}/loup-install.sh" \
@@ -23,14 +28,17 @@ jobs:
       - name: Show toolchain
         run: |
           loup --version
-          clang --version
+          clang --version | head -n 1
+          ld.lld --version
+          qemu-system-x86_64 --version | head -n 1
+          qemu-system-aarch64 --version | head -n 1
 
-      - name: Check, test and build
+      - name: Check, build and boot
         run: make ci
 
-      - name: Upload binary
+      - name: Upload images
         uses: actions/upload-artifact@v4
         with:
-          name: myapp-linux-x86_64
-          path: build/myapp
+          name: timer-images
+          path: build/*.elf
           if-no-files-found: error

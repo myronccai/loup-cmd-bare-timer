@@ -1,0 +1,10 @@
+loup-cmd-bare-timer 0.1.0 on x86_64
+idt: 9 gates installed, loaded with lidt
+pic: 8259 pair remapped to vectors 0x20-0x2f; IRQ 0 (PIT) and IRQ 4 (COM1) unmasked
+pit: channel 0 at 100 Hz (divisor 11932)
+keys: t trap, d divide error, u invalid opcode, g protection fault, p page fault, q quit
+interrupts on
+heartbeat 1: uptime 00:00:01 (100 ticks)
+reading unmapped memory at 0x80000000
+PANIC: reached an `unreachable` expression at x86/isr.lpfree:96
+  fault: #PF page fault (vector 14), error 0x0, rip 0xN, address 0x80000000

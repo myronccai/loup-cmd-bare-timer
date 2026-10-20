@@ -1,0 +1,85 @@
+@mode(freestanding)
+
+# The trap and the faults the keys provoke on aarch64, and the report the
+# panic handler prints about the fault that stopped the kernel.
+
+from timer.console import (puts, putHex);
+from timer.state import (hasFault, faultKind, faultCodeValue, faultPcValue, faultAddress);
+
+pub const FAULT_KEYS: string = "u undefined instruction, p data abort, a alignment fault";
+pub const TRAP_NAME: string = "svc -> SVC (class 0x15)";
+
+# A hole in the virt machine's device map, between the platform devices
+# (0x09000000-0x090fffff) and the virtio transports (0x0a000000).
+const HOLE: uint64 = 0x09fff000u64;
+# Free RAM, plus one: a misaligned word. With the MMU off every data access
+# is to Device memory, which must be aligned.
+const MISALIGNED: uint64 = 0x44000001u64;
+
+# svc #0, as its encoding (the default back end's assembler lacks it).
+pub func trap(): void {
+    asm { ".inst 0xd4000001" }
+}
+
+# udf #0: permanently undefined.
+func undefinedInstruction(): void {
+    asm { ".inst 0x00000000" }
+}
+
+func dataAbort(): uint8 {
+    return Volatile[uint8].at(HOLE).read();
+}
+
+func alignmentFault(): uint32 {
+    return Volatile[uint32, Little].at(MISALIGNED).read();
+}
+
+# Says what it is about to do and does it; false for other keys.
+pub func provokeFault(key: uint8): bool {
+    if (key == 0x75u8) {                       # u
+        puts("executing udf #0\n");
+        undefinedInstruction();
+    } else if (key == 0x70u8) {                # p
+        puts("reading the unmapped address ");
+        putHex(HOLE);
+        puts("\n");
+        let _byte = dataAbort();
+    } else if (key == 0x61u8) {                # a
+        puts("reading a word at the misaligned address ");
+        putHex(MISALIGNED);
+        puts("\n");
+        let _word = alignmentFault();
+    } else {
+        return false;
+    }
+    return true;
+}
+
+func className(ec: uint64): string {
+    if (ec == 0x00u64) { return "unknown reason (undefined instruction)"; }
+    if (ec == 0x21u64) { return "instruction abort"; }
+    if (ec == 0x25u64) { return "data abort"; }
+    if (ec == 0x3Cu64) { return "brk"; }
+    return "exception";
+}
+
+# The second line of a fault panic. Prints nothing for other panics.
+pub func printFaultReport(): void {
+    if (!hasFault()) {
+        return;
+    }
+    let ec = faultKind();
+    puts("  fault: ");
+    puts(className(ec));
+    puts(" (class ");
+    putHex(ec);
+    puts("), esr ");
+    putHex(faultCodeValue());
+    puts(", pc ");
+    putHex(faultPcValue());
+    if (ec == 0x25u64) {
+        puts(", address ");
+        putHex(faultAddress());
+    }
+    puts("\n");
+}

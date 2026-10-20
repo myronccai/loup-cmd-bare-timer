@@ -1,0 +1,98 @@
+@mode(freestanding)
+
+# The trap and the faults the keys provoke on x86_64, and the report the
+# panic handler prints about the fault that stopped the kernel.
+
+from timer.console import (puts, putDec, putHex);
+from timer.state import (hasFault, faultKind, faultCodeValue, faultPcValue, faultAddress);
+
+pub const FAULT_KEYS: string = "d divide error, u invalid opcode, g protection fault, p page fault";
+pub const TRAP_NAME: string = "int3 -> #BP (vector 3)";
+
+# An address the entry stub's identity map (the first 1 GiB) does not cover.
+const UNMAPPED: uint64 = 0x80000000u64;
+
+# int3 is a trap: the saved rip is the next instruction, so the handler can
+# simply return.
+pub func trap(): void {
+    asm { "int3" }
+}
+
+func divideByZero(): void {
+    asm {
+        "xor edx, edx"
+        "mov eax, 1"
+        "xor ecx, ecx"
+        "div ecx"
+        clobbers: ["rax", "rcx", "rdx"]
+    }
+}
+
+func invalidOpcode(): void {
+    asm { "ud2" }
+}
+
+# A non-canonical address: bits 63..47 are not all equal.
+func protectionFault(): void {
+    asm {
+        "movabs rax, 0x8000000000000000"
+        "mov rax, qword ptr [rax]"
+        clobbers: ["rax"]
+    }
+}
+
+func pageFault(): uint8 {
+    return Volatile[uint8].at(UNMAPPED).read();
+}
+
+# Says what it is about to do and does it; false for other keys.
+pub func provokeFault(key: uint8): bool {
+    if (key == 0x64u8) {                       # d
+        puts("dividing by zero\n");
+        divideByZero();
+    } else if (key == 0x75u8) {                # u
+        puts("executing ud2\n");
+        invalidOpcode();
+    } else if (key == 0x67u8) {                # g
+        puts("loading from a non-canonical address\n");
+        protectionFault();
+    } else if (key == 0x70u8) {                # p
+        puts("reading unmapped memory at ");
+        putHex(UNMAPPED);
+        puts("\n");
+        let _value = pageFault();
+    } else {
+        return false;
+    }
+    return true;
+}
+
+func vectorName(v: uint64): string {
+    if (v == 0u64) { return "#DE divide error"; }
+    if (v == 6u64) { return "#UD invalid opcode"; }
+    if (v == 8u64) { return "#DF double fault"; }
+    if (v == 13u64) { return "#GP general protection fault"; }
+    if (v == 14u64) { return "#PF page fault"; }
+    return "exception";
+}
+
+# The second line of a fault panic. Prints nothing for other panics.
+pub func printFaultReport(): void {
+    if (!hasFault()) {
+        return;
+    }
+    let v = faultKind();
+    puts("  fault: ");
+    puts(vectorName(v));
+    puts(" (vector ");
+    putDec(v);
+    puts("), error ");
+    putHex(faultCodeValue());
+    puts(", rip ");
+    putHex(faultPcValue());
+    if (v == 14u64) {
+        puts(", address ");
+        putHex(faultAddress());
+    }
+    puts("\n");
+}

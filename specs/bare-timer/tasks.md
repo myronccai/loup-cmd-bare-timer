@@ -1,0 +1,18 @@
+# Tasks: bare-timer
+
+- [x] 1. Manifests, linker scripts (page-aligned `.idt`, 2 KiB-aligned vectors), boot headers and entry stubs
+  - _Requirements: 1.1_
+- [x] 2. x86: port I/O, COM1 with receive interrupt, IDT and gates, 8259 remap, PIT
+  - _Requirements: 1.2, 3.1_
+- [x] 3. aarch64: PL011 with receive interrupt, GICv2, generic timer, vector table
+  - _Requirements: 1.3, 3.1_
+- [x] 4. Shared state with atomics: ticks, key ring, trap and fault records
+  - _Requirements: 2.1, 3.1, 4.4_
+- [x] 5. Timer and UART handlers; the x86 spurious-IRQ naked stub
+  - _Requirements: 2.1, 3.1, 4.4_
+- [x] 6. Shared main loop over a `Board` of function values: sleep, heartbeats, keys
+  - _Requirements: 1.4, 2.2, 2.3, 3.2, 3.3, 3.6_
+- [x] 7. Exception handlers, deliberate faults per CPU, panic handlers and fault reports
+  - _Requirements: 3.4, 3.5, 4.1, 4.2, 4.3, 5.1_
+- [x] 8. QEMU launcher, interactive boot tests, Makefile and CI
+  - _Requirements: 6.1, 6.2, 6.3, 6.4_

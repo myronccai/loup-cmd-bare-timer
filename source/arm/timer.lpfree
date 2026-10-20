@@ -1,0 +1,32 @@
+@mode(freestanding)
+
+# The EL1 virtual timer of the Arm generic timer. CNTV_TVAL_EL0 counts down
+# at CNTFRQ_EL0 Hz; at zero the timer raises INTID 27 and must be re-armed.
+
+var reload: uint64 = 0u64;
+
+pub func timerFrequency(): uint64 {
+    var f: uint64 = 0;
+    asm { "mrs x0, cntfrq_el0" out: f = "=x0" clobbers: [] }
+    return f;
+}
+
+@interruptSafe
+func setTval(tval: uint64): void {
+    asm { "msr cntv_tval_el0, x0" in: "x0" = tval clobbers: [] }
+}
+
+# Starts the timer at `hz` interrupts a second; returns the reload value.
+pub func timerStart(hz: uint64): uint64 {
+    let r = timerFrequency() / hz;
+    atomicStoreU64(addressOf(reload), r, 5);
+    setTval(r);
+    asm { "msr cntv_ctl_el0, x0" "isb" in: "x0" = 1u64 clobbers: [] }
+    return r;
+}
+
+# Called by the interrupt handler: the next tick in one period.
+@interruptSafe
+pub func timerRearm(): void {
+    setTval(atomicLoadU64(addressOf(reload), 5));
+}

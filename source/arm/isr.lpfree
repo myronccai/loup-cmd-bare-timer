@@ -1,0 +1,147 @@
+@mode(freestanding)
+
+# The exception vector table and the handlers. AArch64 has one entry per
+# kind of exception (synchronous, IRQ, FIQ, SError) and per origin; the
+# kernel runs at EL1 on SP_EL1, so only "current EL, SPx" is used: the
+# synchronous entry (traps and faults) and the IRQ entry (the GIC). Each
+# entry branches to an @interrupt function, whose trampoline saves the
+# registers, passes the frame and returns with eret.
+
+from arm.gic import (INTID_VTIMER, INTID_UART0, INTID_SPURIOUS, gicAcknowledge, gicEnd);
+from arm.timer import (timerRearm);
+from arm.pl011 import (pl011HasByte, pl011ReadByte);
+from timer.state import (tick, pushKey, recordTrap, recordFault);
+
+# What the trampoline builds from the exception registers. (Not named
+# InterruptFrame: in 1.26.0 that name is a built-in with the x86_64 fields,
+# and an imported struct of the same name with other fields is an error.)
+@repr(C)
+pub struct ExceptionFrame {
+    pub let elr_el1: uint64;     # the return address
+    pub let spsr_el1: uint64;    # the saved processor state
+    pub let sp_el0: uint64;
+    pub let esr_el1: uint64;     # the syndrome: exception class in bits 26-31
+}
+
+pub const EC_SVC64: uint64 = 0x15u64;
+
+# The IRQ entry: ask the GIC which interrupt it is, handle it, end it.
+@interrupt(arch: "aarch64")
+func isrIrq(frame: borrow ExceptionFrame): void {
+    let iar = gicAcknowledge();
+    let intid = iar & 0x3FFu64;
+    if (intid == INTID_VTIMER) {
+        timerRearm();
+        tick();
+    } else if (intid == INTID_UART0) {
+        while (pl011HasByte()) {
+            pushKey(pl011ReadByte());
+        }
+    }
+    if (intid != INTID_SPURIOUS) {
+        gicEnd(iar);
+    }
+}
+
+@interruptSafe
+func readFar(): uint64 {
+    var a: uint64 = 0;
+    asm { "mrs x0, far_el1" out: a = "=x0" clobbers: [] }
+    return a;
+}
+
+# The synchronous entry. An svc is a trap: ELR_EL1 already points past it,
+# so returning resumes the program. Anything else is a fault: record the
+# exception class, the syndrome, the instruction and the fault address,
+# then panic (panic = "custom" calls the @panic_handler in
+# main_aarch64.lpfree). The frame is read-only and the trampoline restores
+# ELR_EL1 from it, so a handler cannot skip a faulting instruction.
+@interrupt(arch: "aarch64")
+func isrSync(frame: borrow ExceptionFrame): void {
+    let ec = (frame.esr_el1 >> 26u64) & 0x3Fu64;
+    if (ec == EC_SVC64) {
+        recordTrap(frame.elr_el1);
+        return;
+    }
+    recordFault(ec, frame.esr_el1, frame.elr_el1, readFar());
+    unreachable;
+}
+
+@interruptSafe
+func readEsr(): uint64 {
+    var v: uint64 = 0;
+    asm { "mrs x0, esr_el1" out: v = "=x0" clobbers: [] }
+    return v;
+}
+
+@interruptSafe
+func readElr(): uint64 {
+    var v: uint64 = 0;
+    asm { "mrs x0, elr_el1" out: v = "=x0" clobbers: [] }
+    return v;
+}
+
+# Every other entry (FIQ, SError, the EL0 and SP_EL0 origins) is not
+# expected. It is reached by a plain branch, never returns, and reports
+# through the panic path like a fault. @section keeps it in the image: only
+# the vector table's assembly refers to it.
+@section(".text.unexpected")
+func vecUnexpected(): void {
+    let esr = readEsr();
+    recordFault((esr >> 26u64) & 0x3Fu64, esr, readElr(), readFar());
+    unreachable;
+}
+
+# VBAR_EL1's table: 16 entries of 0x80 bytes, 2 KiB aligned (the linker
+# script gives .text.vectors its own aligned output section).
+@section(".text.vectors")
+@naked
+@unsafe("naked: the exception vector table; each 128-byte entry is one branch")
+func vectorTable(): void {
+    asm {
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b isrSync"
+        ".balign 128"
+        "b isrIrq"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+        ".balign 128"
+        "b vecUnexpected"
+    }
+}
+
+pub func installVectors(): uint64 {
+    var a: uint64 = 0;
+    asm {
+        "adrp x0, vectorTable"
+        "add x0, x0, :lo12:vectorTable"
+        "msr vbar_el1, x0"
+        "isb"
+        out: a = "=x0"
+        clobbers: ["memory"]
+    }
+    return a;
+}

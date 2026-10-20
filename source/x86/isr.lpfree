@@ -1,0 +1,169 @@
+@mode(freestanding)
+
+# The interrupt handlers. Each is an @interrupt function: the compiler wraps
+# its body in a trampoline that saves registers and returns with iretq.
+# Everything a handler calls must be @interruptSafe, which the checker
+# enforces. Handlers only record what happened; the main loop does the
+# printing. The fault handlers record the fault and then panic.
+
+from x86.idt import (InterruptFrame, setInterruptGate, setTrapGate);
+from x86.pic import (IRQ_BASE, IRQ_TIMER, IRQ_COM1, picEoi);
+from x86.com1 import (com1HasByte, com1ReadByte);
+from timer.state import (tick, pushKey, recordTrap, recordFault);
+
+pub const VECTOR_DIVIDE: int = 0;
+pub const VECTOR_BREAKPOINT: int = 3;
+pub const VECTOR_INVALID_OPCODE: int = 6;
+pub const VECTOR_DOUBLE_FAULT: int = 8;
+pub const VECTOR_PROTECTION: int = 13;
+pub const VECTOR_PAGE_FAULT: int = 14;
+pub const VECTOR_SPURIOUS: int = 0x27;     # IRQ 7
+
+# ---- Device interrupts ----------------------------------------------------------
+
+# IRQ 0, the PIT: count the tick, acknowledge the 8259.
+@interrupt(arch: "x86_64", has_error_code: false)
+func isrTimer(frame: borrow InterruptFrame): void {
+    tick();
+    picEoi();
+}
+
+# IRQ 4, COM1: queue every byte that has arrived (reading it clears the
+# UART's interrupt), acknowledge the 8259.
+@interrupt(arch: "x86_64", has_error_code: false)
+func isrCom1(frame: borrow InterruptFrame): void {
+    while (com1HasByte()) {
+        pushKey(com1ReadByte());
+    }
+    picEoi();
+}
+
+# A spurious IRQ 7: the 8259 raises it when a line drops before the CPU
+# answers. It must not be acknowledged, so the handler is a bare iretq.
+@naked
+@unsafe("naked: an interrupt entry that only returns; no registers are touched")
+func isrSpurious(): void {
+    asm { "iretq" }
+}
+
+# ---- Exceptions -------------------------------------------------------------------
+
+# int3: a trap, so the saved rip is the instruction after it and returning
+# resumes the program.
+@interrupt(arch: "x86_64", has_error_code: false)
+func isrBreakpoint(frame: borrow InterruptFrame): void {
+    recordTrap(frame.rip);
+}
+
+@interruptSafe
+func readCr2(): uint64 {
+    var a: uint64 = 0;
+    asm { "mov rax, cr2" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+# The faults below cannot be resumed: each records what the CPU reported and
+# reaches `unreachable`, a panic, which panic = "custom" turns into a call to
+# the @panic_handler in main_x86_64.lpfree.
+
+@interrupt(arch: "x86_64", has_error_code: false)
+func isrDivide(frame: borrow InterruptFrame): void {
+    recordFault(VECTOR_DIVIDE as uint64, 0u64, frame.rip, 0u64);
+    unreachable;
+}
+
+@interrupt(arch: "x86_64", has_error_code: false)
+func isrInvalidOpcode(frame: borrow InterruptFrame): void {
+    recordFault(VECTOR_INVALID_OPCODE as uint64, 0u64, frame.rip, 0u64);
+    unreachable;
+}
+
+@interrupt(arch: "x86_64", has_error_code: true)
+func isrDoubleFault(frame: borrow InterruptFrame, error: uint64): void {
+    recordFault(VECTOR_DOUBLE_FAULT as uint64, error, frame.rip, 0u64);
+    unreachable;
+}
+
+@interrupt(arch: "x86_64", has_error_code: true)
+func isrProtection(frame: borrow InterruptFrame, error: uint64): void {
+    recordFault(VECTOR_PROTECTION as uint64, error, frame.rip, 0u64);
+    unreachable;
+}
+
+@interrupt(arch: "x86_64", has_error_code: true)
+func isrPageFault(frame: borrow InterruptFrame, error: uint64): void {
+    recordFault(VECTOR_PAGE_FAULT as uint64, error, frame.rip, readCr2());
+    unreachable;
+}
+
+# ---- Installing them ----------------------------------------------------------------
+
+# A function's address comes from `lea`: addressOf takes variables only. The
+# symbol names the trampoline (the body is <name>__isr_body).
+func addrTimer(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrTimer]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+func addrCom1(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrCom1]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+func addrSpurious(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrSpurious]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+func addrBreakpoint(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrBreakpoint]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+func addrDivide(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrDivide]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+func addrInvalidOpcode(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrInvalidOpcode]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+func addrDoubleFault(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrDoubleFault]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+func addrProtection(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrProtection]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+func addrPageFault(): uint64 {
+    var a: uint64 = 0;
+    asm { "lea rax, [rip + isrPageFault]" out: a = "=a" clobbers: [] }
+    return a;
+}
+
+# Fills the IDT gates this kernel uses. Every other vector stays empty: an
+# exception there escalates to a double fault.
+pub func installHandlers(): void {
+    setInterruptGate(VECTOR_DIVIDE, addrDivide());
+    setTrapGate(VECTOR_BREAKPOINT, addrBreakpoint());
+    setInterruptGate(VECTOR_INVALID_OPCODE, addrInvalidOpcode());
+    setInterruptGate(VECTOR_DOUBLE_FAULT, addrDoubleFault());
+    setInterruptGate(VECTOR_PROTECTION, addrProtection());
+    setInterruptGate(VECTOR_PAGE_FAULT, addrPageFault());
+    setInterruptGate(IRQ_BASE + IRQ_TIMER, addrTimer());
+    setInterruptGate(IRQ_BASE + IRQ_COM1, addrCom1());
+    setInterruptGate(VECTOR_SPURIOUS, addrSpurious());
+}

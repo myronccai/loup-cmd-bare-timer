@@ -1,0 +1,10 @@
+loup-cmd-bare-timer 0.1.0 on x86_64
+idt: 9 gates installed, loaded with lidt
+pic: 8259 pair remapped to vectors 0x20-0x2f; IRQ 0 (PIT) and IRQ 4 (COM1) unmasked
+pit: channel 0 at 100 Hz (divisor 11932)
+keys: t trap, d divide error, u invalid opcode, g protection fault, p page fault, q quit
+interrupts on
+heartbeat 1: uptime 00:00:01 (100 ticks)
+loading from a non-canonical address
+PANIC: reached an `unreachable` expression at x86/isr.lpfree:90
+  fault: #GP general protection fault (vector 13), error 0x0, rip 0xN

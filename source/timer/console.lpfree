@@ -1,0 +1,62 @@
+@mode(freestanding)
+
+# The console, independent of the board: the board attaches its UART's
+# polled byte writer at boot. Nothing here is called from an interrupt
+# handler (handlers record, the main loop prints); the panic handler uses it
+# because it needs no buffer and takes no lock.
+
+func discard(b: uint8): void {
+}
+
+var gPut: func(uint8): void = discard;
+
+pub func attach(put: func(uint8): void): void {
+    gPut = put;
+}
+
+pub func putc(c: uint8): void {
+    gPut(c);
+}
+
+pub func puts(s: string): void {
+    for (c in s) {
+        gPut(c as uint8);
+    }
+}
+
+pub func putDec(n: uint64): void {
+    var divisor: uint64 = 1u64;
+    while (n / divisor >= 10u64) {
+        divisor = divisor * 10u64;
+    }
+    var rest = n;
+    while (divisor > 0u64) {
+        gPut((0x30u64 + rest / divisor) as uint8);
+        rest = rest % divisor;
+        divisor = divisor / 10u64;
+    }
+}
+
+# Two digits, zero-padded: 07.
+pub func putDec2(n: uint64): void {
+    gPut((0x30u64 + (n / 10u64) % 10u64) as uint8);
+    gPut((0x30u64 + n % 10u64) as uint8);
+}
+
+# 0x-prefixed lower-case hex without leading zeros.
+pub func putHex(n: uint64): void {
+    puts("0x");
+    var shift = 60;
+    while (shift > 0 and ((n >> (shift as uint64)) & 0xFu64) == 0u64) {
+        shift = shift - 4;
+    }
+    while (shift >= 0) {
+        let nibble = (n >> (shift as uint64)) & 0xFu64;
+        if (nibble < 10u64) {
+            gPut((0x30u64 + nibble) as uint8);
+        } else {
+            gPut((0x57u64 + nibble) as uint8);
+        }
+        shift = shift - 4;
+    }
+}

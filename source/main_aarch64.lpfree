@@ -1,0 +1,101 @@
+@mode(freestanding)
+
+# The aarch64 board for `qemu-system-aarch64 -M virt -kernel`: the entry
+# stub, the interrupt set-up (vector table, GICv2, the generic timer, the
+# PL011's receive interrupt), and the panic handler. The main loop is
+# timer.app, shared with the x86_64 board.
+
+from appinfo import (STATUS_PANIC);
+from timer.app import (TICK_HZ, run);
+from timer.board import (Board);
+from timer.console import (attach, puts, putDec, putHex);
+from arm.pl011 import (pl011Init, pl011Put);
+from arm.gic import (INTID_VTIMER, INTID_UART0, gicInit, gicEnable);
+from arm.timer import (timerFrequency, timerStart);
+from arm.isr import (installVectors);
+from arm.qemu import (qemuExit);
+from arm.faults import (FAULT_KEYS, TRAP_NAME, trap, provokeFault, printFaultReport);
+
+func setup(): void {
+    let vbar = installVectors();
+    puts("vectors: VBAR_EL1 = ");
+    putHex(vbar);
+    puts(" (16 entries, 2 KiB aligned)\n");
+
+    gicInit();
+    gicEnable(INTID_VTIMER);
+    gicEnable(INTID_UART0);
+    puts("gic: GICv2 on; INTID 27 (virtual timer) and 33 (PL011) enabled\n");
+
+    let reload = timerStart(TICK_HZ);
+    puts("timer: CNTV at ");
+    putDec(TICK_HZ);
+    puts(" Hz (");
+    putDec(reload);
+    puts(" counts of ");
+    putDec(timerFrequency());
+    puts(" Hz)\n");
+
+    pl011Init();
+}
+
+func enableInterrupts(): void {
+    asm { "msr daifclr, #2" clobbers: ["memory"] }
+}
+
+func idle(): void {
+    asm { "wfi" }
+}
+
+func exitQemu(status: uint8): void {
+    qemuExit(status);
+}
+
+func kernelMain(): void {
+    attach(pl011Put);
+    let board = Board(arch = "aarch64", faultKeys = FAULT_KEYS, setup = setup,
+        enableInterrupts = enableInterrupts, idle = idle, trap = trap,
+        trapName = TRAP_NAME, pcName = "pc", fault = provokeFault, exit = exitQemu);
+    run(board);
+    qemuExit(STATUS_PANIC);
+}
+
+# ---- Panics -------------------------------------------------------------------
+
+# With `panic = "custom"` in the manifest, every panic lands here: the fault
+# handler reaches `unreachable` after recording the fault, and a buffer
+# index out of range under `bounds = "trap"` panics too. It masks interrupts
+# and writes with the polled, buffer-free console functions.
+@panic_handler
+func kernelPanic(msg: string, file: string, line: int): noreturn {
+    asm { "msr daifset, #0xf" clobbers: ["memory"] }
+    attach(pl011Put);
+    puts("PANIC: ");
+    puts(msg);
+    puts(" at ");
+    puts(file);
+    puts(":");
+    putDec(line as uint64);
+    puts("\n");
+    printFaultReport();
+    qemuExit(STATUS_PANIC);
+}
+
+# ---- Entry --------------------------------------------------------------------
+
+# QEMU enters here at EL1 with the MMU off and no stack: set sp to the stack
+# the linker script reserves and call kernelMain.
+@entry
+@naked
+@unsafe("naked: runs before any stack exists; sets sp from the linker script, then calls kernelMain")
+@section(".text.boot")
+func _start(): void {
+    asm {
+        "adrp x0, __stack_top"
+        "add x0, x0, :lo12:__stack_top"
+        "mov sp, x0"
+        "bl kernelMain"
+        "1: wfe"
+        "b 1b"
+    }
+}

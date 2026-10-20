@@ -1,16 +1,22 @@
-name = "myapp"
+# The x86_64 kernel (QEMU pc). Build it with
+#   loup build --target freestanding --arch x86_64
+name = "timer"
 version = "0.1.0"
 loup = "1.26.0"
 authors = []
 
 [build]
-entry = "source/main.loup"
-delivery = "cli"
-profile = "release"
+entry = "source/main_x86_64.lpfree"
+target = "freestanding"
+mode = "freestanding"
+arch = "x86_64"
+panic = "custom"
 
-[dependencies]
+[linker]
+script = "linker/x86_64.ld"
+entry = "_start"
 
-[test]
-pattern = "**/*_test.loup"
-parallel = true
-timeout = 30
+[freestanding]
+stack_size = 65536
+bounds = "trap"
+overlays = "error"

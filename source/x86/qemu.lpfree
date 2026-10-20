@@ -1,0 +1,15 @@
+@mode(freestanding)
+
+from x86.port import (outb);
+
+const DEBUG_EXIT_PORT: uint16 = 0xF4u16;
+
+# isa-debug-exit makes QEMU exit with (value << 1) | 1: 0x10 -> 33,
+# 0x12 -> 37. Without the device the write is ignored and the CPU halts.
+@interruptSafe
+pub func qemuExit(status: uint8): noreturn {
+    outb(DEBUG_EXIT_PORT, 0x10u8 | status);
+    while (true) {
+        asm { "cli" "hlt" }
+    }
+}

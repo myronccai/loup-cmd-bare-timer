@@ -1,0 +1,186 @@
+@mode(freestanding)
+
+# The x86_64 board for `qemu-system-x86_64 -kernel`: the boot headers QEMU
+# looks for, the 32-bit entry that switches to long mode, the interrupt
+# set-up (IDT, 8259s, PIT, COM1's receive interrupt), and the panic handler.
+# The main loop is timer.app, shared with the aarch64 board.
+
+from appinfo import (STATUS_PANIC);
+from timer.app import (TICK_HZ, run);
+from timer.board import (Board);
+from timer.console import (attach, puts, putDec);
+from x86.com1 import (com1Init, com1Put);
+from x86.idt import (loadIdt, gateCount);
+from x86.pic import (picRemap);
+from x86.pit import (pitDivisor, pitStart);
+from x86.qemu import (qemuExit);
+from x86.isr import (installHandlers);
+from x86.faults import (FAULT_KEYS, TRAP_NAME, trap, provokeFault, printFaultReport);
+
+# IRQ 0 (bit 0) and IRQ 4 (bit 4) enabled on the master; the slave masked.
+const MASTER_MASK: uint8 = 0xEEu8;
+const SLAVE_MASK: uint8 = 0xFFu8;
+
+func setup(): void {
+    installHandlers();
+    loadIdt();
+    puts("idt: ");
+    putDec(gateCount() as uint64);
+    puts(" gates installed, loaded with lidt\n");
+
+    picRemap(MASTER_MASK, SLAVE_MASK);
+    puts("pic: 8259 pair remapped to vectors 0x20-0x2f; IRQ 0 (PIT) and IRQ 4 (COM1) unmasked\n");
+
+    let divisor = pitDivisor(TICK_HZ);
+    pitStart(divisor);
+    puts("pit: channel 0 at ");
+    putDec(TICK_HZ);
+    puts(" Hz (divisor ");
+    putDec(divisor);
+    puts(")\n");
+}
+
+func enableInterrupts(): void {
+    asm { "sti" clobbers: ["memory"] }
+}
+
+func idle(): void {
+    asm { "hlt" }
+}
+
+func exitQemu(status: uint8): void {
+    qemuExit(status);
+}
+
+func kernelMain(): void {
+    com1Init();
+    attach(com1Put);
+    let board = Board(arch = "x86_64", faultKeys = FAULT_KEYS, setup = setup,
+        enableInterrupts = enableInterrupts, idle = idle, trap = trap,
+        trapName = TRAP_NAME, pcName = "rip", fault = provokeFault, exit = exitQemu);
+    run(board);
+    qemuExit(STATUS_PANIC);
+}
+
+# ---- Panics -------------------------------------------------------------------
+
+# With `panic = "custom"` in the manifest, every panic lands here: the fault
+# handlers reach `unreachable` after recording the fault, and a buffer index
+# out of range under `bounds = "trap"` panics too. It masks interrupts and
+# writes with the polled, buffer-free console functions.
+@panic_handler
+func kernelPanic(msg: string, file: string, line: int): noreturn {
+    asm { "cli" }
+    attach(com1Put);
+    puts("PANIC: ");
+    puts(msg);
+    puts(" at ");
+    puts(file);
+    puts(":");
+    putDec(line as uint64);
+    puts("\n");
+    printFaultReport();
+    qemuExit(STATUS_PANIC);
+}
+
+# ---- Boot headers and entry ---------------------------------------------------
+
+# Multiboot2 header: magic, architecture 0 (i386), length, checksum, end tag.
+@section(".multiboot")
+@naked
+@unsafe("naked: data only, never called; the Multiboot2 header")
+func multibootHeader(): void {
+    asm {
+        ".align 8"
+        "mb2_start:"
+        ".long 0xE85250D6"
+        ".long 0"
+        ".long mb2_end - mb2_start"
+        ".long 0x100000000 - (0xE85250D6 + (mb2_end - mb2_start))"
+        ".short 0"
+        ".short 0"
+        ".long 8"
+        "mb2_end:"
+    }
+}
+
+# Xen PVH note (type 18, XEN_ELFNOTE_PHYS32_ENTRY): where QEMU enters the image.
+@section(".note.Xen")
+@naked
+@unsafe("naked: data only, never called; the PVH entry note")
+func pvhNote(): void {
+    asm {
+        ".align 4"
+        ".long 4"
+        ".long 4"
+        ".long 18"
+        ".byte 0x58"
+        ".byte 0x65"
+        ".byte 0x6e"
+        ".byte 0x00"
+        ".align 4"
+        ".long _start"
+    }
+}
+
+# QEMU enters here in 32-bit protected mode with paging off and no stack.
+# Identity-map the first 1 GiB with 2 MiB pages (tables at 0x70000-0x72FFF),
+# enable PAE and long mode, load a flat GDT (0x08 code, 0x10 data), switch to
+# the stack the linker script reserves (__stack_top) and call kernelMain.
+@entry
+@naked
+@unsafe("naked: entered by the PVH loader in 32-bit mode with no stack; builds page tables and enters long mode")
+@section(".text.boot")
+func _start(): void {
+    asm {
+        ".code32"
+        "mov esp, 0x90000"
+        "mov dword ptr [0x70000], 0x71003"
+        "mov dword ptr [0x70004], 0"
+        "mov dword ptr [0x71000], 0x72003"
+        "mov dword ptr [0x71004], 0"
+        "mov edi, 0x72000"
+        "mov eax, 0x83"
+        "mov ecx, 512"
+        "fill_pd:"
+        "mov dword ptr [edi], eax"
+        "mov dword ptr [edi+4], 0"
+        "add eax, 0x200000"
+        "add edi, 8"
+        "dec ecx"
+        "jnz fill_pd"
+        "mov eax, 0x70000"
+        "mov cr3, eax"
+        "mov eax, cr4"
+        "or eax, 0x20"
+        "mov cr4, eax"
+        "mov ecx, 0xC0000080"
+        "rdmsr"
+        "or eax, 0x100"
+        "wrmsr"
+        "mov eax, cr0"
+        "or eax, 0x80000001"
+        "mov cr0, eax"
+        "lgdt [gdt_ptr]"
+        "jmp 0x08, long_mode"
+        ".code64"
+        "long_mode:"
+        "mov ax, 0x10"
+        "mov ds, ax"
+        "mov es, ax"
+        "mov ss, ax"
+        "lea rsp, [rip + __stack_top]"
+        "call kernelMain"
+        "cli"
+        "hlt"
+        ".align 8"
+        "gdt_start:"
+        ".quad 0x0000000000000000"
+        ".quad 0x00209A0000000000"
+        ".quad 0x0000920000000000"
+        "gdt_ptr:"
+        ".word 23"
+        ".long gdt_start"
+        clobbers: ["memory"]
+    }
+}

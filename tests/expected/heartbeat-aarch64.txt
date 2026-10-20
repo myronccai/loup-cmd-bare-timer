@@ -1,0 +1,12 @@
+loup-cmd-bare-timer 0.1.0 on aarch64
+vectors: VBAR_EL1 = 0x40080800 (16 entries, 2 KiB aligned)
+gic: GICv2 on; INTID 27 (virtual timer) and 33 (PL011) enabled
+timer: CNTV at 100 Hz (625000 counts of 62500000 Hz)
+keys: t trap, u undefined instruction, p data abort, a alignment fault, q quit
+interrupts on
+heartbeat 1: uptime 00:00:01 (100 ticks)
+heartbeat 2: uptime 00:00:02 (200 ticks)
+heartbeat 3: uptime 00:00:03 (300 ticks)
+trap 1: svc -> SVC (class 0x15) handled, resumed at pc 0xN
+key 'x' does nothing; keys: t trap, u undefined instruction, p data abort, a alignment fault, q quit
+quit after N ticks and 1 trap(s)

@@ -1,0 +1,27 @@
+@mode(freestanding)
+
+# What a board gives the arch-neutral main loop: names for the console, and
+# the operations that differ per CPU, as function values.
+pub struct Board {
+    # The --arch the image was built for.
+    pub let arch: string;
+    # The fault keys after `t`, for the key list, e.g. "d divide error, ...".
+    pub let faultKeys: string;
+    # Installs the handlers, starts the timer at TICK_HZ and the UART's
+    # receive interrupt, and prints one line per step.
+    pub let setup: func(): void;
+    # Unmasks interrupts at the CPU.
+    pub let enableInterrupts: func(): void;
+    # Sleeps until the next interrupt (hlt, wfi).
+    pub let idle: func(): void;
+    # Executes the trap instruction the kernel survives (int3, svc).
+    pub let trap: func(): void;
+    # How the trap is described: "int3 -> #BP (vector 3)", and the name of
+    # the program counter ("rip", "pc").
+    pub let trapName: string;
+    pub let pcName: string;
+    # Provokes the fault for `key`; false when the key is not a fault key.
+    pub let fault: func(uint8): bool;
+    # Ends the run; QEMU exits. Does not return.
+    pub let exit: func(uint8): void;
+}

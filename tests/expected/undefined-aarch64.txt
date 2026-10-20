@@ -1,0 +1,10 @@
+loup-cmd-bare-timer 0.1.0 on aarch64
+vectors: VBAR_EL1 = 0x40080800 (16 entries, 2 KiB aligned)
+gic: GICv2 on; INTID 27 (virtual timer) and 33 (PL011) enabled
+timer: CNTV at 100 Hz (625000 counts of 62500000 Hz)
+keys: t trap, u undefined instruction, p data abort, a alignment fault, q quit
+interrupts on
+heartbeat 1: uptime 00:00:01 (100 ticks)
+executing udf #0
+PANIC: reached an `unreachable` expression at arm/isr.lpfree:67
+  fault: unknown reason (undefined instruction) (class 0x0), esr 0x2000000, pc 0xN

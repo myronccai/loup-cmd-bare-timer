@@ -1,46 +1,53 @@
-# Build, check and test commands for this Loup command-line application.
+# Check, build and boot the bare-metal images of loup-cmd-bare-timer.
 #
-# On Linux x86-64 `loup` is the self-hosted driver and `loup-bootstrap` is
-# Stage0; `check` and `test` need Stage0 there. On macOS, Windows and Linux
-# arm64 both names run Stage0, so these targets work unchanged.
+# One image per board: x86_64 (QEMU pc; package.lppkg at the root) and
+# aarch64 (QEMU virt; boards/aarch64/package.lppkg). On Linux x86-64 `loup`
+# is the self-hosted driver, which builds images; `loup-bootstrap` (Stage0)
+# type-checks them.
 
-APP            ?= myapp
+APP            ?= timer
 LOUP           ?= loup
 LOUP_BOOTSTRAP ?= loup-bootstrap
 BUILD_DIR      ?= build
-BIN            := $(BUILD_DIR)/$(APP)
-SOURCES        := package.lppkg $(shell find source -name '*.loup')
-ARGS           ?=
-TEST_ARGS      ?=
+ARCHS          := x86_64 aarch64
+ARCH           ?= x86_64
+IMAGES         := $(foreach a,$(ARCHS),$(BUILD_DIR)/$(APP)-$(a).elf)
+SOURCES        := package.lppkg boards/aarch64/package.lppkg \
+                  $(wildcard linker/*.ld) $(shell find source -name '*.lpfree')
 
-.PHONY: all run check test build ci clean
+# The directory holding a board's manifest.
+board_dir = $(if $(filter x86_64,$(1)),.,boards/$(1))
+
+.PHONY: all check build boot run ci clean
 
 all: build
 
-# Run from source, e.g. `make run ARGS="hello Ann --shout"`.
-run:
-	$(LOUP) run source/main.loup -- $(ARGS)
-
-# Type-check source/main.loup and every module it imports.
+# Type-check each board's entry file and every module it imports. The
+# "marshals a struct by value" warnings on the interrupt handlers' frame
+# parameter are expected (see the README).
 check:
 	$(LOUP_BOOTSTRAP) check --no-color
+	cd boards/aarch64 && $(LOUP_BOOTSTRAP) check --no-color
 
-# Tests import project modules by their path under source/ (`from cli.args
-# import (...)`), the same way the sources do, so source/ goes on LOUPPATH.
-# Narrow the run with TEST_ARGS, e.g. `make test TEST_ARGS="--filter value"`.
-test:
-	LOUPPATH=source$${LOUPPATH:+:$$LOUPPATH} $(LOUP_BOOTSTRAP) test $(TEST_ARGS)
+# Both images (needs Linux x86-64, clang and ld.lld).
+build: $(IMAGES)
 
-# Native executable (needs clang). Windows writes $(BIN).exe.
-build: $(BIN)
-
-$(BIN): $(SOURCES)
+$(BUILD_DIR)/$(APP)-%.elf: $(SOURCES)
 	@mkdir -p $(BUILD_DIR)
-	$(LOUP) build --target native -o $@
+	$(LOUP) build --target freestanding --arch $* -o $@ $(call board_dir,$*)
 
-# Everything CI runs, ending with a smoke test of the built binary.
-ci: check test build
-	$(BIN) --version
+# End-to-end: boot each image under QEMU, wait for heartbeats, press keys,
+# and compare the transcripts and exit statuses with tests/expected/
+boot: $(IMAGES)
+	bash tests/boot.sh $(BUILD_DIR)
+
+# Boot one image with its serial port on this terminal, e.g.
+# `make run ARCH=aarch64`. Keys go to the kernel; press q to quit.
+run: $(BUILD_DIR)/$(APP)-$(ARCH).elf
+	-scripts/qemu.sh $(ARCH) $<
+
+# Everything CI runs.
+ci: check build boot
 
 clean:
-	rm -rf $(BUILD_DIR) .temp
+	rm -rf $(BUILD_DIR) .temp boards/aarch64/.temp

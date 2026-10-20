@@ -1,0 +1,17 @@
+@mode(freestanding)
+
+# x86 port I/O. Interrupt-safe: one instruction each, no state.
+
+@interruptSafe
+@unsafe("port I/O: writes an x86 I/O port")
+pub func outb(port: uint16, value: uint8): void {
+    asm { "out dx, al" in: "dx" = port, "al" = value clobbers: [] }
+}
+
+@interruptSafe
+@unsafe("port I/O: reads an x86 I/O port")
+pub func inb(port: uint16): uint8 {
+    var value: uint64 = 0;
+    asm { "in al, dx" out: value = "=a" in: "dx" = port clobbers: [] }
+    return (value & 0xFFu64) as uint8;
+}

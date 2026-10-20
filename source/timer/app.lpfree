@@ -1,0 +1,105 @@
+@mode(freestanding)
+
+# The kernel's main loop, the same on every board: let the board set up its
+# interrupts, turn them on, then sleep until each interrupt wakes it. It
+# prints a heartbeat every second of uptime and acts on the keys the UART
+# handler queued.
+
+from appinfo import (APP_NAME, APP_VERSION, STATUS_OK);
+from timer.board import (Board);
+from timer.console import (putc, puts, putDec, putDec2, putHex);
+from timer.state import (ticksNow, popKey, trapCount, lastTrapPc);
+
+pub const TICK_HZ: uint64 = 100u64;
+
+# "00:01:05" from a number of seconds.
+func putClock(seconds: uint64): void {
+    putDec2(seconds / 3600u64);
+    puts(":");
+    putDec2((seconds / 60u64) % 60u64);
+    puts(":");
+    putDec2(seconds % 60u64);
+}
+
+func printHeartbeat(beat: uint64, atTicks: uint64): void {
+    puts("heartbeat ");
+    putDec(beat);
+    puts(": uptime ");
+    putClock(atTicks / TICK_HZ);
+    puts(" (");
+    putDec(atTicks);
+    puts(" ticks)\n");
+}
+
+func printKeys(board: Board): void {
+    puts("keys: t trap, ");
+    puts(board.faultKeys);
+    puts(", q quit\n");
+}
+
+func handleKey(board: Board, key: uint8): void {
+    if (key == 0x71u8) {                       # q
+        puts("quit after ");
+        putDec(ticksNow());
+        puts(" ticks and ");
+        putDec(trapCount());
+        puts(" trap(s)\n");
+        let stop = board.exit;
+        stop(STATUS_OK);
+    } else if (key == 0x74u8) {                # t
+        let trap = board.trap;
+        trap();
+        puts("trap ");
+        putDec(trapCount());
+        puts(": ");
+        puts(board.trapName);
+        puts(" handled, resumed at ");
+        puts(board.pcName);
+        puts(" ");
+        putHex(lastTrapPc());
+        puts("\n");
+    } else if (key == 0x0Du8 or key == 0x0Au8) {
+        # Enter: nothing to do.
+    } else {
+        let fault = board.fault;
+        if (!fault(key)) {
+            puts("key '");
+            putc(key);
+            puts("' does nothing; ");
+            printKeys(board);
+        }
+    }
+}
+
+pub func run(board: Board): void {
+    puts(APP_NAME);
+    puts(" ");
+    puts(APP_VERSION);
+    puts(" on ");
+    puts(board.arch);
+    puts("\n");
+    let setup = board.setup;
+    setup();
+    printKeys(board);
+    let enable = board.enableInterrupts;
+    enable();
+    puts("interrupts on\n");
+
+    let idle = board.idle;
+    var beats: uint64 = 0u64;
+    var nextBeat: uint64 = TICK_HZ;
+    while (true) {
+        idle();
+        let now = ticksNow();
+        while (now >= nextBeat) {
+            beats = beats + 1u64;
+            printHeartbeat(beats, nextBeat);
+            nextBeat = nextBeat + TICK_HZ;
+        }
+        var key = popKey();
+        while (key != 0u64) {
+            handleKey(board, key as uint8);
+            key = popKey();
+        }
+    }
+}

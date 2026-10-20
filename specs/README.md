@@ -11,9 +11,8 @@ Each feature gets a directory under `specs/` holding three files:
 Name the directory after the feature in kebab-case, e.g. `specs/export-command/`.
 
 Write or update the spec before changing behaviour, keep it in step with the
-code, and tick tasks off as they land. [`command-line-interface/`](command-line-interface/)
-is a worked example that describes the template's own argument parsing and
-sample command.
+code, and tick tasks off as they land. [`bare-timer/`](bare-timer/)
+is this repository's spec.
 
 ## Starting a new spec
 

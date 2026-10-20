@@ -1,0 +1,104 @@
+@mode(freestanding)
+
+# State shared between the interrupt handlers and the main loop. Every
+# access goes through the atomic intrinsics: a handler can run between any
+# two instructions of the main loop.
+
+const SEQ_CST: int = 5;
+
+# Timer interrupts since the timer was started.
+var ticks: uint64 = 0u64;
+
+# Keys from the UART handler: a single-producer, single-consumer ring. The
+# handler writes keyRing[head % 16] and then advances head; the main loop
+# reads keyRing[tail % 16] and then advances tail.
+const KEY_RING: uint64 = 16u64;
+var keyRing: buffer[uint64, 16];
+var keyHead: uint64 = 0u64;
+var keyTail: uint64 = 0u64;
+
+# The last trap the kernel resumed from (its return address), and how many.
+var traps: uint64 = 0u64;
+var trapPc: uint64 = 0u64;
+
+# The fault that stopped the kernel: its kind (the x86 vector or the AArch64
+# exception class) + 1 (0 = none), the error code or syndrome, the faulting
+# instruction and the faulting address (0 when the CPU gives none).
+var faultKindPlusOne: uint64 = 0u64;
+var faultCode: uint64 = 0u64;
+var faultPc: uint64 = 0u64;
+var faultAddr: uint64 = 0u64;
+
+@interruptSafe
+pub func tick(): void {
+    let _old = atomicFetchAddU64(addressOf(ticks), 1u64, SEQ_CST);
+}
+
+pub func ticksNow(): uint64 {
+    return atomicLoadU64(addressOf(ticks), SEQ_CST);
+}
+
+# Called by the UART handler. When the ring is full the key is dropped.
+@interruptSafe
+pub func pushKey(key: uint8): void {
+    let head = atomicLoadU64(addressOf(keyHead), SEQ_CST);
+    let tail = atomicLoadU64(addressOf(keyTail), SEQ_CST);
+    if (head - tail >= KEY_RING) {
+        return;
+    }
+    keyRing[(head % KEY_RING) as int] = key as uint64;
+    atomicStoreU64(addressOf(keyHead), head + 1u64, SEQ_CST);
+}
+
+# The next key, or 0 when there is none.
+pub func popKey(): uint64 {
+    let tail = atomicLoadU64(addressOf(keyTail), SEQ_CST);
+    if (tail == atomicLoadU64(addressOf(keyHead), SEQ_CST)) {
+        return 0u64;
+    }
+    let key = keyRing[(tail % KEY_RING) as int];
+    atomicStoreU64(addressOf(keyTail), tail + 1u64, SEQ_CST);
+    return key;
+}
+
+@interruptSafe
+pub func recordTrap(pc: uint64): void {
+    atomicStoreU64(addressOf(trapPc), pc, SEQ_CST);
+    let _old = atomicFetchAddU64(addressOf(traps), 1u64, SEQ_CST);
+}
+
+pub func trapCount(): uint64 {
+    return atomicLoadU64(addressOf(traps), SEQ_CST);
+}
+
+pub func lastTrapPc(): uint64 {
+    return atomicLoadU64(addressOf(trapPc), SEQ_CST);
+}
+
+@interruptSafe
+pub func recordFault(kind: uint64, code: uint64, pc: uint64, address: uint64): void {
+    atomicStoreU64(addressOf(faultCode), code, SEQ_CST);
+    atomicStoreU64(addressOf(faultPc), pc, SEQ_CST);
+    atomicStoreU64(addressOf(faultAddr), address, SEQ_CST);
+    atomicStoreU64(addressOf(faultKindPlusOne), kind + 1u64, SEQ_CST);
+}
+
+pub func hasFault(): bool {
+    return atomicLoadU64(addressOf(faultKindPlusOne), SEQ_CST) != 0u64;
+}
+
+pub func faultKind(): uint64 {
+    return atomicLoadU64(addressOf(faultKindPlusOne), SEQ_CST) - 1u64;
+}
+
+pub func faultCodeValue(): uint64 {
+    return atomicLoadU64(addressOf(faultCode), SEQ_CST);
+}
+
+pub func faultPcValue(): uint64 {
+    return atomicLoadU64(addressOf(faultPc), SEQ_CST);
+}
+
+pub func faultAddress(): uint64 {
+    return atomicLoadU64(addressOf(faultAddr), SEQ_CST);
+}

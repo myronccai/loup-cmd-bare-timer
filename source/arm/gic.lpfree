@@ -1,0 +1,58 @@
+@mode(freestanding)
+
+# The GICv2 interrupt controller of QEMU's virt machine: the distributor
+# routes interrupts, the CPU interface hands them to this core.
+
+const GICD: uint64 = 0x08000000u64;   # distributor
+const GICC: uint64 = 0x08010000u64;   # CPU interface
+
+const GICD_CTLR: uint64 = 0x000u64;
+const GICD_ISENABLER: uint64 = 0x100u64;
+const GICD_ITARGETSR: uint64 = 0x800u64;
+const GICC_CTLR: uint64 = 0x000u64;
+const GICC_PMR: uint64 = 0x004u64;
+const GICC_IAR: uint64 = 0x00Cu64;
+const GICC_EOIR: uint64 = 0x010u64;
+
+pub const INTID_VTIMER: uint64 = 27u64;    # the EL1 virtual timer (a PPI)
+pub const INTID_UART0: uint64 = 33u64;     # the PL011 (SPI 1)
+pub const INTID_SPURIOUS: uint64 = 1023u64;
+
+func w32(addr: uint64, v: uint32): void {
+    Volatile[uint32, Little].at(addr).write(v);
+}
+
+func r32(addr: uint64): uint32 {
+    return Volatile[uint32, Little].at(addr).read();
+}
+
+# Distributor and CPU interface on; every priority let through.
+pub func gicInit(): void {
+    w32(GICD + GICD_CTLR, 1u32);
+    w32(GICC + GICC_PMR, 0xF0u32);
+    w32(GICC + GICC_CTLR, 1u32);
+}
+
+# Enables one interrupt; a shared peripheral interrupt (32 and up) is also
+# routed to CPU 0.
+pub func gicEnable(intid: uint64): void {
+    let word = GICD + GICD_ISENABLER + (intid / 32u64) * 4u64;
+    w32(word, ((1u64 << (intid % 32u64)) & 0xFFFFFFFFu64) as uint32);
+    if (intid >= 32u64) {
+        let target = GICD + GICD_ITARGETSR + (intid / 4u64) * 4u64;
+        let shift = (intid % 4u64) * 8u64;
+        let old = r32(target) as uint64;
+        w32(target, ((old | (1u64 << shift)) & 0xFFFFFFFFu64) as uint32);
+    }
+}
+
+# The interrupt being taken (its INTID in bits 0-9).
+@interruptSafe
+pub func gicAcknowledge(): uint64 {
+    return Volatile[uint32, Little].at(GICC + GICC_IAR).read() as uint64;
+}
+
+@interruptSafe
+pub func gicEnd(iar: uint64): void {
+    Volatile[uint32, Little].at(GICC + GICC_EOIR).write((iar & 0xFFFFFFFFu64) as uint32);
+}

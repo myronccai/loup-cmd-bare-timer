@@ -1,0 +1,33 @@
+@mode(freestanding)
+
+# The PL011 UART of QEMU's virt machine: polled output, and an interrupt
+# (INTID 33 at the GIC) for every byte received.
+
+const UART0: uint64 = 0x09000000u64;
+const UART_DR: uint64 = 0x00u64;      # data
+const UART_FR: uint64 = 0x18u64;      # flags
+const UART_IMSC: uint64 = 0x38u64;    # interrupt mask set/clear
+const FR_RXFE: uint32 = 0x10u32;      # receive FIFO empty
+const FR_TXFF: uint32 = 0x20u32;      # transmit FIFO full
+const IMSC_RXIM: uint32 = 0x10u32;    # receive interrupt
+
+# Interrupt on every byte received.
+pub func pl011Init(): void {
+    Volatile[uint32, Little].at(UART0 + UART_IMSC).write(IMSC_RXIM);
+}
+
+pub func pl011Put(c: uint8): void {
+    while ((Volatile[uint32, Little].at(UART0 + UART_FR).read() & FR_TXFF) != 0u32) { }
+    Volatile[uint8].at(UART0 + UART_DR).write(c);
+}
+
+@interruptSafe
+pub func pl011HasByte(): bool {
+    return (Volatile[uint32, Little].at(UART0 + UART_FR).read() & FR_RXFE) == 0u32;
+}
+
+# Reading the byte also clears the receive interrupt.
+@interruptSafe
+pub func pl011ReadByte(): uint8 {
+    return (Volatile[uint32, Little].at(UART0 + UART_DR).read() & 0xFFu32) as uint8;
+}
