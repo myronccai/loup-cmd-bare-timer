@@ -53,6 +53,9 @@ Prerequisites: Linux x86-64, Loup 1.26.0 (`loup` and `loup-bootstrap` on
 `PATH`), `make`, `clang`, `ld.lld`, `qemu-system-x86_64` and
 `qemu-system-aarch64`.
 
+Loup Lite comes from <https://github.com/code-craft-ai-company/loup-releases>;
+[README.md](README.md#installing-loup-lite) has the install commands.
+
 | Task | Command | Notes |
 |------|---------|-------|
 | Type-check | `make check` | both boards; one expected frame warning per interrupt handler |
