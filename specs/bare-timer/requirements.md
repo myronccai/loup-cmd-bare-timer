@@ -79,7 +79,13 @@ kernel so that I can try each handler.
    (a word read at `0x44000001` after turning on alignment checking with
    `SCTLR_EL1.A`).
 6. WHEN Enter is read, THE kernel SHALL ignore it; WHEN any other key is
-   read, THE kernel SHALL print `key 'K' does nothing;` and the key list.
+   read, THE kernel SHALL print `key 'K' does nothing;` (or `key 0xHH`
+   when K is not printable) and the key list. Every byte value is a key:
+   a NUL SHALL be reported like any other.
+7. WHEN the main loop takes a key, THE kernel SHALL record it, with the tick
+   count at that moment, in a `debug.recording` journal (the first 512
+   keys); WHEN `r` is read, THE kernel SHALL print `journal: N key(s)` and
+   one `tick T: K` line per recorded key.
 
 ### Requirement 4: Faults through the panic path
 

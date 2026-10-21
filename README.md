@@ -24,7 +24,10 @@ This one is `freestanding` Loup (`.lpfree`), booted under QEMU.
 | IDT gates in a `buffer[uint64, 512]`, handler addresses with `lea`, `lidt`; interrupt vs trap gates | [`source/x86/idt.lpfree`](source/x86/idt.lpfree) |
 | The 8259 remap and masks, the 8254 PIT at 100 Hz, a 16550 receive interrupt | [`source/x86/`](source/x86) |
 | The GICv2 (distributor, CPU interface, acknowledge, end of interrupt), the EL1 virtual timer, a PL011 receive interrupt | [`source/arm/`](source/arm) |
-| Data shared with handlers through atomics only: the tick count, a lock-free key ring | [`source/timer/state.lpfree`](source/timer/state.lpfree) |
+| Data shared with handlers through atomics: the tick count, a lock-free key ring whose pop runs in a `with (g = InterruptGuard.disable())` critical section and returns an `Option[uint8]` (a NUL byte is a key too) | [`source/timer/state.lpfree`](source/timer/state.lpfree) |
+| Masking interrupts: `InterruptGuard` around the two stores of an IDT gate, `irqSaveDisable()`/`irqRestore()` around the three-write PIT programming sequence | [`source/x86/idt.lpfree`](source/x86/idt.lpfree), [`source/x86/pit.lpfree`](source/x86/pit.lpfree) |
+| Compile-time work: `const func` + `size_of` layout checks on the interrupt frames (a wrong size fails the build), the PIT divisor computed by a `const func` | `checkedSize` in [`source/x86/idt.lpfree`](source/x86/idt.lpfree) and [`source/arm/isr.lpfree`](source/arm/isr.lpfree), `pitDivisor` |
+| A `debug.recording` `RecordStream` journal of every key (a timer record and an input record each), replayed by `r`; `if const` can compile it out | [`source/timer/app.lpfree`](source/timer/app.lpfree) |
 | Fault handlers that record the fault and report through the panic path (`unreachable` + `panic = "custom"`) | `isrPageFault`, `isrSync`, `kernelPanic` |
 | One main loop for both CPUs: the board passes its operations as function values | [`source/timer/app.lpfree`](source/timer/app.lpfree), [`source/timer/board.lpfree`](source/timer/board.lpfree) |
 | Testing an interrupt-driven kernel: wait for output, type keys, compare | [`tests/boot.sh`](tests/boot.sh) |
@@ -116,7 +119,8 @@ is expected and does not fail the check.
 
 ## Usage
 
-On x86-64: three heartbeats, `t` for a trap, then `q`:
+On x86-64: three heartbeats, `t` for a trap, `r` for the key journal, then
+`q`:
 
 ```text
 $ scripts/qemu.sh x86_64 build/timer-x86_64.elf; echo "QEMU exit status $?"
@@ -124,13 +128,16 @@ loup-cmd-bare-timer 0.1.0 on x86_64
 idt: 9 gates installed, loaded with lidt
 pic: 8259 pair remapped to vectors 0x20-0x2f; IRQ 0 (PIT) and IRQ 4 (COM1) unmasked
 pit: channel 0 at 100 Hz (divisor 11932)
-keys: t trap, d divide error, u invalid opcode, g protection fault, p page fault, q quit
+keys: t trap, d divide error, u invalid opcode, g protection fault, p page fault, r journal, q quit
 interrupts on
 heartbeat 1: uptime 00:00:01 (100 ticks)
 heartbeat 2: uptime 00:00:02 (200 ticks)
 heartbeat 3: uptime 00:00:03 (300 ticks)
-trap 1: int3 -> #BP (vector 3) handled, resumed at rip 0x103a85
-quit after 360 ticks and 1 trap(s)
+trap 1: int3 -> #BP (vector 3) handled, resumed at rip 0x1061d5
+journal: 2 key(s)
+  tick 305: 't'
+  tick 305: 'r'
+quit after 306 ticks and 1 trap(s)
 QEMU exit status 33
 ```
 
@@ -152,12 +159,12 @@ loup-cmd-bare-timer 0.1.0 on aarch64
 vectors: VBAR_EL1 = 0x40080800 (16 entries, 2 KiB aligned)
 gic: GICv2 on; INTID 27 (virtual timer) and 33 (PL011) enabled
 timer: CNTV at 100 Hz (625000 counts of 62500000 Hz)
-keys: t trap, u undefined instruction, p data abort, a alignment fault, q quit
+keys: t trap, u undefined instruction, p data abort, a alignment fault, r journal, q quit
 interrupts on
 heartbeat 1: uptime 00:00:01 (100 ticks)
 heartbeat 2: uptime 00:00:02 (200 ticks)
-trap 1: svc -> SVC (class 0x15) handled, resumed at pc 0x40082cc8
-quit after 264 ticks and 1 trap(s)
+trap 1: svc -> SVC (class 0x15) handled, resumed at pc 0x40082e1c
+quit after 203 ticks and 1 trap(s)
 QEMU exit status 0
 ```
 
@@ -167,8 +174,8 @@ exits with 2):
 ```text
 heartbeat 1: uptime 00:00:01 (100 ticks)
 alignment checks on; reading a word at 0x44000001
-PANIC: reached an `unreachable` expression at arm/isr.lpfree:81
-  fault: data abort (class 0x25), esr 0x96000021, pc 0x40082f08, address 0x44000001
+PANIC: reached an `unreachable` expression at arm/isr.lpfree:91
+  fault: data abort (class 0x25), esr 0x96000021, pc 0x4008305c, address 0x44000001
 ```
 
 ### Keys
@@ -181,7 +188,12 @@ PANIC: reached an `unreachable` expression at arm/isr.lpfree:81
 | `g` | load from a non-canonical address: #GP, vector 13 | | panic |
 | `p` | read at `0x80000000`, outside the identity map: #PF, vector 14, address from `cr2` | read at `0x09fff000`, a hole in the device map: data abort, class 0x25, address from `FAR_EL1` | panic |
 | `a` | | sets `SCTLR_EL1.A` (alignment checking), then reads a word at `0x44000001`: data abort (alignment), class 0x25 | panic |
+| `r` | the key journal: every key taken so far, with the tick it was taken at | the same | no |
 | `q` | quit | quit | status 0 |
+
+Any other key is reported and ignored: `key 'x' does nothing`, or its code
+in hex when it is not printable (`key 0x0 does nothing` for a NUL). The
+journal keeps the first 512 keys of a run.
 
 On x86-64 a double fault (#DF, vector 8) has a handler too; no key provokes
 one. On AArch64 every vector other than the synchronous and IRQ entries
@@ -207,8 +219,14 @@ with `(value << 1) | 1`; AArch64 passes the status to semihosting
 - The faults are provoked from the keyboard, through a second interrupt
   source (the UART's), so that CI exercises every handler. The fault keys
   differ per CPU.
-- Shared data uses atomic intrinsics rather than `InterruptGuard`: one
-  writer and one reader per variable need no masking.
+- Shared data uses atomic intrinsics: one writer and one reader per
+  variable need no masking. The main loop still takes each key with
+  interrupts masked (`InterruptGuard`), and an IDT gate is written the
+  same way.
+- The IDT and the `lidt` operand are quadword buffers, not `@repr(C)` /
+  `@repr(packed)` structs: in Loup 1.26.0 freestanding builds a struct
+  global or a buffer of structs holds each struct by reference, so the
+  layout the CPU reads would never be in memory.
 - The aarch64 version, a stretch goal, is included and tested.
 
 ## Layout
@@ -222,7 +240,7 @@ source/main_x86_64.lpfree     # x86 boot headers, _start, setup, @panic_handler
 source/main_aarch64.lpfree    # aarch64 _start, setup, @panic_handler
 source/x86/                   # port I/O, COM1, IDT, 8259, PIT, handlers, faults, QEMU exit
 source/arm/                   # PL011, GICv2, generic timer, vectors and handlers, faults, QEMU exit
-source/timer/                 # shared: Board, console, atomic state, the main loop
+source/timer/                 # shared: Board, console, atomic state, the main loop and key journal
 scripts/qemu.sh               # the QEMU command line for each board
 tests/boot.sh                 # boot tests (make boot)
 tests/expected/               # expected transcripts

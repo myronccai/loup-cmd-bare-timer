@@ -33,8 +33,8 @@ needed.
 │   ├── timer/                   # shared by both boards
 │   │   ├── board.lpfree         # struct Board: names and per-CPU operations as function values
 │   │   ├── console.lpfree       # attach(put), putc, puts, putDec, putDec2, putHex
-│   │   ├── state.lpfree         # ticks, key ring, trap and fault records (atomics only)
-│   │   └── app.lpfree           # run(board): the hlt/wfi loop, heartbeats, keys
+│   │   ├── state.lpfree         # ticks, key ring (popKey: Option), trap and fault records (atomics)
+│   │   └── app.lpfree           # run(board): the hlt/wfi loop, heartbeats, keys, key journal
 │   ├── x86/                     # port, com1, idt, pic, pit, isr (handlers), faults, qemu
 │   └── arm/                     # pl011, gic, timer, isr (vectors, handlers), faults, qemu
 ├── scripts/qemu.sh              # the QEMU command line for each board
@@ -61,7 +61,7 @@ Loup Lite comes from <https://github.com/code-craft-ai-company/loup-releases>;
 | Type-check | `make check` | both boards; one expected frame warning per interrupt handler |
 | Build | `make build` | `build/timer-x86_64.elf`, `build/timer-aarch64.elf` |
 | Build one board | `make build/timer-aarch64.elf` | |
-| Boot tests | `make boot` | `tests/boot.sh`: nine cases, about 15 seconds (the timers run in real time) |
+| Boot tests | `make boot` | `tests/boot.sh`: nine cases, about 15 seconds (the timers run in real time); `sendesc:` steps type printf `%b` escapes such as a NUL |
 | Refresh expected transcripts | `UPDATE=1 bash tests/boot.sh` | then read `git diff tests/expected` before committing |
 | Use the kernel | `make run` / `make run ARCH=aarch64` | keys go to the kernel; `q` quits |
 | Everything CI runs | `make ci` | check, build, boot |
@@ -107,6 +107,12 @@ self-hosted driver refuses it).
   `read`): the call links to the C symbol.
 - Sized integers (`uint8` ... `uint32`) do not wrap in 1.26.0 freestanding
   builds; compute in `uint64` and mask when wrap-around matters.
+- A struct global or a buffer of structs holds each struct by reference in
+  1.26.0 freestanding builds: anything the hardware reads (the IDT, the
+  `lidt` operand) stays a buffer of integers.
+- `make build` removes `build/*.elf.loupbuild.fp` before each image: the
+  self-hosted build cache does not see changes under `source/` for the
+  aarch64 board (its manifest is in `boards/aarch64`).
 - Keep `APP_VERSION` in `source/appinfo.lpfree` equal to `version` in both
   manifests.
 - The skill documents toolchain 1.25.1; this repository targets 1.26.0. When

@@ -16,3 +16,7 @@
   - _Requirements: 3.4, 3.5, 4.1, 4.2, 4.3, 5.1_
 - [x] 8. QEMU launcher, interactive boot tests, Makefile and CI
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
+- [x] 9. `popKey` returns `Option[uint8]` under `InterruptGuard` (a NUL is a key); non-printable keys shown in hex; boot test sends a NUL
+  - _Requirements: 3.1, 3.6_
+- [x] 10. Key journal on `debug.recording` (`r`), `if const` switch; masked IDT gate and PIT writes; `const func` frame size checks
+  - _Requirements: 3.7_

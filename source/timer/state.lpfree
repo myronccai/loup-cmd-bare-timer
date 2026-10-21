@@ -51,7 +51,7 @@ pub func ticksNow(): uint64 {
     return atomicLoadU64(addressOf(ticks), SEQ_CST);
 }
 
-# Called by the UART handler. When the ring is full the key is dropped.
+## Called by the UART handler. When the ring is full the key is dropped.
 @interruptSafe
 pub func pushKey(key: uint8): void {
     let head = atomicLoadU64(addressOf(keyHead), SEQ_CST);
@@ -63,15 +63,29 @@ pub func pushKey(key: uint8): void {
     atomicStoreU64(addressOf(keyHead), head + 1u64, SEQ_CST);
 }
 
-# The next key, or 0 when there is none.
-pub func popKey(): uint64 {
-    let tail = atomicLoadU64(addressOf(keyTail), SEQ_CST);
-    if (tail == atomicLoadU64(addressOf(keyHead), SEQ_CST)) {
-        return 0u64;
+## The next key, or None when the ring is empty. Every byte is a key, NUL
+## included, so emptiness is reported beside the key, never as a key value.
+## Main loop only: an Option return lives in one static block (1.26.0), so
+## this must never be called from a handler.
+pub func popKey(): Option[uint8] {
+    var found = false;
+    var key: uint64 = 0u64;
+    # The ring is single-producer, single-consumer, so the atomics alone keep
+    # it correct on one core. The pop still runs with interrupts masked, as
+    # the kernel does for any state a handler also writes: the check, the
+    # read of the slot and the advance of the tail are then one step.
+    with (g = InterruptGuard.disable()) {
+        let tail = atomicLoadU64(addressOf(keyTail), SEQ_CST);
+        if (tail != atomicLoadU64(addressOf(keyHead), SEQ_CST)) {
+            key = keyRing[(tail % KEY_RING) as int];
+            atomicStoreU64(addressOf(keyTail), tail + 1u64, SEQ_CST);
+            found = true;
+        }
     }
-    let key = keyRing[(tail % KEY_RING) as int];
-    atomicStoreU64(addressOf(keyTail), tail + 1u64, SEQ_CST);
-    return key;
+    if (found) {
+        return Some((key & 0xFFu64) as uint8);
+    }
+    return None;
 }
 
 @interruptSafe

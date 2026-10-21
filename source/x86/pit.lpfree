@@ -12,16 +12,29 @@
 
 from x86.port import (outb);
 
-pub const PIT_HZ: uint64 = 1193182u64;
+pub const PIT_HZ: uint64 = 1_193_182u64;
 
-# The divisor for `hz` interrupts a second, rounded to nearest.
-pub func pitDivisor(hz: uint64): uint64 {
-    return (PIT_HZ + hz / 2u64) / hz;
+## The divisor for `hz` interrupts a second, rounded to nearest. A const
+## func, so the compiler works PIT_DIVISOR out and no division is left in
+## the image. (Stage0's const evaluator refuses a parenthesized expression,
+## hence the local.)
+const func pitDivisor(hz: uint64): uint64 {
+    let rounded = PIT_HZ + hz / 2u64;
+    return rounded / hz;
 }
 
-# Channel 0, low byte then high byte, mode 2 (rate generator).
+# 100 is TICK_HZ (timer/app.lpfree): Stage0 cannot evaluate an imported
+# constant at compile time, so the rate is written out here.
+pub const PIT_DIVISOR: uint64 = pitDivisor(100u64);
+
+## Channel 0, low byte then high byte, mode 2 (rate generator). The command
+## and the two divisor bytes are one sequence: an interrupt handler touching
+## the PIT in between would leave it half programmed, so interrupts stay
+## masked for the three writes and are then restored to what they were.
 pub func pitStart(divisor: uint64): void {
+    let saved = irqSaveDisable();
     outb(0x43u16, 0x34u8);
     outb(0x40u16, (divisor & 0xFFu64) as uint8);
     outb(0x40u16, ((divisor >> 8u64) & 0xFFu64) as uint8);
+    irqRestore(saved);
 }

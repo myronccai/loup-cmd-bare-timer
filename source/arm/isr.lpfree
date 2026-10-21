@@ -37,6 +37,16 @@ pub struct ExceptionFrame {
     pub let esr_el1: uint64;     # the syndrome: exception class in bits 26-31
 }
 
+# Returns `actual` when it equals `expected`; evaluated by the compiler, so a
+# frame layout that disagrees with the trampoline's is a build error. (A
+# const func cannot be imported in 1.26.0, so x86/idt.lpfree has its own.)
+const func checkedSize(actual: uint64, expected: uint64): uint64 {
+    if (actual != expected) { unreachable }
+    return actual;
+}
+
+const FRAME_BYTES: uint64 = checkedSize(size_of[ExceptionFrame](), 32u64);
+
 pub const EC_SVC64: uint64 = 0x15u64;
 
 # The IRQ entry: ask the GIC which interrupt it is, handle it, end it.

@@ -26,7 +26,7 @@ from timer.console import (attach, puts, putDec);
 from x86.com1 import (com1Init, com1Put);
 from x86.idt import (loadIdt, gateCount);
 from x86.pic import (picRemap);
-from x86.pit import (pitDivisor, pitStart);
+from x86.pit import (PIT_DIVISOR, pitStart);
 from x86.qemu import (qemuExit);
 from x86.isr import (installHandlers);
 from x86.faults import (FAULT_KEYS, TRAP_NAME, trap, provokeFault, printFaultReport);
@@ -45,12 +45,11 @@ func setup(): void {
     picRemap(MASTER_MASK, SLAVE_MASK);
     puts("pic: 8259 pair remapped to vectors 0x20-0x2f; IRQ 0 (PIT) and IRQ 4 (COM1) unmasked\n");
 
-    let divisor = pitDivisor(TICK_HZ);
-    pitStart(divisor);
+    pitStart(PIT_DIVISOR);
     puts("pit: channel 0 at ");
     putDec(TICK_HZ);
     puts(" Hz (divisor ");
-    putDec(divisor);
+    putDec(PIT_DIVISOR);
     puts(")\n");
 }
 

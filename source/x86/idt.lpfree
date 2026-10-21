@@ -9,9 +9,14 @@
 # x86_64`); the aarch64 image never contains it. It runs when `make boot`
 # boots that image on QEMU's pc machine; `make check` type-checks it with
 # Stage0.
+#
+# Structure: the frame the CPU pushes and its compile-time size check, the
+# table as 512 quadwords (two per gate) with the lidt operand, then the
+# functions that fill and load them.
 
 # What an x86_64 CPU pushes on interrupt entry (after the error code, which
-# the @interrupt trampoline passes separately).
+# the @interrupt trampoline passes separately). The handlers borrow it where
+# the trampoline built it, so its layout must be the CPU's.
 @repr(C)
 pub struct InterruptFrame {
     pub let rip: uint64;
@@ -21,12 +26,27 @@ pub struct InterruptFrame {
     pub let ss: uint64;
 }
 
+## Returns `actual` when it equals `expected`. Evaluated by the compiler in
+## the `const` initializer below, it turns a frame layout that disagrees
+## with the CPU's into a build error instead of a wrong `rip` at run time.
+## (A const func cannot be imported in 1.26.0, so arm/isr.lpfree has its
+## own.)
+const func checkedSize(actual: uint64, expected: uint64): uint64 {
+    if (actual != expected) { unreachable }
+    return actual;
+}
+
+const FRAME_BYTES: uint64 = checkedSize(size_of[InterruptFrame](), 40u64);
+
 const KERNEL_CS: uint64 = 0x08u64;          # the code segment the entry stub loads
 const GATE_INTERRUPT: uint64 = 0x8Eu64;     # present, DPL 0, 64-bit interrupt gate
 const GATE_TRAP: uint64 = 0x8Fu64;          # the same, but interrupts stay enabled
 
-# The table gets a section of its own, which the linker script aligns to a
-# page, and the pseudo-descriptor lidt reads (limit:16, base:64).
+# The table and the pseudo-descriptor lidt reads (limit:16, base:64) are
+# plain quadwords: a struct global or a buffer of structs is held by
+# reference in 1.26.0 freestanding builds (an 8-byte slot per struct), so a
+# @repr(C) gate in a buffer would never be laid out as the CPU reads it. The
+# table gets a section of its own, which the linker script aligns to a page.
 @section(".idt")
 var idt: buffer[uint64, 512];
 var idtr: buffer[uint64, 2];
@@ -35,21 +55,25 @@ var gatesSet: int = 0;
 
 # A gate is two quadwords. The low one holds handler bits 0-15, the code
 # selector, the type and present bits (IST 0) and handler bits 16-31 at the
-# top; the high one holds handler bits 32-63.
+# top; the high one holds handler bits 32-63. Two stores: once the table is
+# loaded, an interrupt arriving between them would find half a handler
+# address, so they run with interrupts masked.
 func setGateWith(vector: int, handler: uint64, kind: uint64): void {
     let low = (handler & 0xFFFFu64) | (KERNEL_CS << 16u64) | (kind << 40u64)
         | (((handler >> 16u64) & 0xFFFFu64) << 48u64);
-    idt[vector * 2] = low;
-    idt[vector * 2 + 1] = handler >> 32u64;
+    with (g = InterruptGuard.disable()) {
+        idt[vector * 2] = low;
+        idt[vector * 2 + 1] = handler >> 32u64;
+    }
     gatesSet = gatesSet + 1;
 }
 
-# An interrupt gate: the CPU masks interrupts while the handler runs.
+## An interrupt gate: the CPU masks interrupts while the handler runs.
 pub func setInterruptGate(vector: int, handler: uint64): void {
     setGateWith(vector, handler, GATE_INTERRUPT);
 }
 
-# A trap gate: interrupts stay as they were (used for int3).
+## A trap gate: interrupts stay as they were (used for int3).
 pub func setTrapGate(vector: int, handler: uint64): void {
     setGateWith(vector, handler, GATE_TRAP);
 }
@@ -67,9 +91,10 @@ func setIdtr(i: int, v: uint64): void {
     idtr[i] = v;
 }
 
+## Points the CPU at the table. The 10-byte pseudo-descriptor spans two
+## quadwords: the limit (256 gates * 16 bytes - 1 = 4095), then the 64-bit
+## base.
 pub func loadIdt(): void {
-    # The 10-byte pseudo-descriptor across two quadwords: the limit
-    # (256 gates * 16 bytes - 1 = 4095), then the 64-bit base.
     let base = addressOf(idt);
     setIdtr(0, 4095u64 | (base << 16u64));
     setIdtr(1, base >> 48u64);

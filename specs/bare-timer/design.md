@@ -55,8 +55,8 @@ step past a `brk`; `svc` is the trap that needs no adjustment.
 | `source/appinfo.lpfree` | name, version, statuses |
 | `source/timer/board.lpfree` | `struct Board` |
 | `source/timer/console.lpfree` | `attach(put)`, `putc`, `puts`, `putDec`, `putDec2`, `putHex` |
-| `source/timer/state.lpfree` | tick count, key ring, trap and fault records; atomics only |
-| `source/timer/app.lpfree` | `run(board)`: bring-up, the sleep loop, heartbeats, keys |
+| `source/timer/state.lpfree` | tick count, key ring (`popKey(): Option[uint8]`), trap and fault records; atomics |
+| `source/timer/app.lpfree` | `run(board)`: bring-up, the sleep loop, heartbeats, keys, the key journal |
 | `source/x86/port.lpfree`, `com1.lpfree`, `idt.lpfree`, `pic.lpfree`, `pit.lpfree`, `qemu.lpfree` | x86 devices |
 | `source/x86/isr.lpfree` | the x86 handlers, the `@naked` spurious-IRQ stub, `installHandlers` |
 | `source/x86/faults.lpfree` | `trap`, `provokeFault(key)`, `printFaultReport` |
@@ -71,7 +71,16 @@ step past a `brk`; `svc` is the trap that needs no adjustment.
 - **Shared data is atomic.** The tick count, the key ring's head and tail,
   and the trap and fault records are accessed only with `atomicLoadU64`,
   `atomicStoreU64` and `atomicFetchAddU64`. The key ring has one producer
-  (the UART handler) and one consumer (the main loop), so it needs no lock.
+  (the UART handler) and one consumer (the main loop), so it needs no lock;
+  the main loop still pops each key inside `InterruptGuard.disable()`, and
+  reports an empty ring as `None`, never as a key value.
+- **Multi-store updates are masked.** An IDT gate (two quadword stores) is
+  written inside `InterruptGuard.disable()`; the PIT's command and divisor
+  bytes inside `irqSaveDisable()`/`irqRestore()`.
+- **Layouts are checked when compiling.** A `const func` compares
+  `size_of` of each interrupt frame with the CPU's size; a mismatch is a
+  build error. The IDT stays a `buffer[uint64, 512]`: a buffer of structs
+  holds references in 1.26.0, not the structs' bytes.
 - **Handlers do not print.** They record; the main loop reports. The panic
   handler prints with polled, buffer-free functions.
 - **No `Result` in handlers.** Functions that return a `Result` keep it in a
@@ -99,14 +108,15 @@ message and location and the fault record, and exits with status 2.
 ## Testing
 
 `tests/boot.sh` runs QEMU with its serial input on a FIFO. Each case is a
-list of `wait:TEXT` and `send:KEYS` steps; the transcript is compared with
-`tests/expected/NAME.txt` after replacing instruction addresses
-(`rip 0x...`, `pc 0x...`) and the tick count at quit time with `N`, and
-dropping heartbeats after the third.
+list of `wait:TEXT`, `send:KEYS` and `sendesc:KEYS` (printf `%b` escapes)
+steps; the transcript is compared with `tests/expected/NAME.txt` after
+replacing instruction addresses (`rip 0x...`, `pc 0x...`), the tick count
+at quit time and the journal's ticks with `N`, and dropping heartbeats
+after the third.
 
 | Case | Steps | QEMU exit status |
 |---|---|---|
-| `heartbeat-x86_64`, `heartbeat-aarch64` | wait for heartbeat 3, `t`, `x`, `q` | 33, 0 |
+| `heartbeat-x86_64`, `heartbeat-aarch64` | wait for heartbeat 3, `t`, `x`, a NUL (`sendesc:\0`), `r`, `q` | 33, 0 |
 | `divide-error-x86_64` | wait for heartbeat 1, `d` | 37 |
 | `invalid-opcode-x86_64` | wait for heartbeat 1, `u` | 37 |
 | `protection-fault-x86_64` | wait for heartbeat 1, `g` | 37 |

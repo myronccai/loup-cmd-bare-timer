@@ -14,14 +14,28 @@
 # Structure: the interrupt handlers only count ticks and queue keys
 # (timer/state.lpfree); everything visible happens here, after each wake-up:
 # a heartbeat for every second of uptime the tick count has passed, then
-# one action per queued key (trap, fault, quit).
+# one action per queued key (trap, fault, journal, quit). The key journal is
+# a debug.recording RecordStream: each key the loop takes is recorded as a
+# timer read (the tick) and an input event (the byte), the records a replay
+# of this run would need, and `r` prints them back with rs_replay.
 
 from appinfo import (APP_NAME, APP_VERSION, STATUS_OK);
 from timer.board import (Board);
 from timer.console import (putc, puts, putDec, putDec2, putHex);
 from timer.state import (ticksNow, popKey, trapCount, lastTrapPc);
+from debug.recording import (RecordStream, rs_init, rs_record, rs_replay, rs_stopped,
+    overflow_halt, nondet_timer, nondet_input);
 
 pub const TICK_HZ: uint64 = 100u64;
+
+# The key journal is a debugging aid: with this false, `if const` leaves the
+# recording calls out of the image and `r` says so.
+const RECORD_KEYS: bool = true;
+
+# 1024 records (two per key) and a 4 KiB arena, about 17 KiB of .bss: a
+# RecordStream is too big for the stack, so it is a module global, and
+# halt-on-full keeps the first 512 keys rather than overwriting them.
+var gJournal: RecordStream;
 
 # "00:01:05" from a number of seconds.
 func putClock(seconds: uint64): void {
@@ -45,7 +59,54 @@ func printHeartbeat(beat: uint64, atTicks: uint64): void {
 func printKeys(board: Board): void {
     puts("keys: t trap, ");
     puts(board.faultKeys);
-    puts(", q quit\n");
+    puts(", r journal, q quit\n");
+}
+
+# A key as the user would name it: 'x' when printable, else its code in hex
+# (0x0, 0x1b), so a control byte is never written raw to the terminal.
+func putKey(key: uint8): void {
+    if (key >= 0x20u8 and key < 0x7Fu8) {
+        puts("'");
+        putc(key);
+        puts("'");
+    } else {
+        putHex(key as uint64);
+    }
+}
+
+func recordKey(key: uint8): void {
+    if const (RECORD_KEYS) {
+        let _at = rs_record(edits: gJournal, nondet_timer(), ticksNow());
+        let _seq = rs_record(edits: gJournal, nondet_input(), key as uint64);
+    }
+}
+
+# Replays the journal: the records come back in pairs, the tick a key was
+# taken at, then the key.
+func printJournal(): void {
+    if const (!RECORD_KEYS) {
+        puts("journal: not recorded in this build\n");
+        return;
+    }
+    let keys = gJournal.count / 2u64;
+    puts("journal: ");
+    putDec(keys);
+    puts(" key(s)");
+    if (rs_stopped(gJournal)) {
+        puts(", full: later keys were not recorded");
+    }
+    puts("\n");
+    var step: uint64 = 0u64;
+    while (step + 1u64 < gJournal.count) {
+        let at = rs_replay(gJournal, step);
+        let input = rs_replay(gJournal, step + 1u64);
+        puts("  tick ");
+        putDec(at.payload);
+        puts(": ");
+        putKey((input.payload & 0xFFu64) as uint8);
+        puts("\n");
+        step = step + 2u64;
+    }
 }
 
 func handleKey(board: Board, key: uint8): void {
@@ -69,14 +130,16 @@ func handleKey(board: Board, key: uint8): void {
         puts(" ");
         putHex(lastTrapPc());
         puts("\n");
+    } else if (key == 0x72u8) {                # r
+        printJournal();
     } else if (key == 0x0Du8 or key == 0x0Au8) {
         # Enter: nothing to do.
     } else {
         let fault = board.fault;
         if (!fault(key)) {
-            puts("key '");
-            putc(key);
-            puts("' does nothing; ");
+            puts("key ");
+            putKey(key);
+            puts(" does nothing; ");
             printKeys(board);
         }
     }
@@ -89,6 +152,7 @@ pub func run(board: Board): void {
     puts(" on ");
     puts(board.arch);
     puts("\n");
+    rs_init(edits: gJournal, 0u32, overflow_halt());
     let setup = board.setup;
     setup();
     printKeys(board);
@@ -107,10 +171,16 @@ pub func run(board: Board): void {
             printHeartbeat(beats, nextBeat);
             nextBeat = nextBeat + TICK_HZ;
         }
-        var key = popKey();
-        while (key != 0u64) {
-            handleKey(board, key as uint8);
-            key = popKey();
+        # Every queued key, until popKey reports the ring empty.
+        var more = true;
+        while (more) {
+            match popKey() {
+                Some(key) => {
+                    recordKey(key);
+                    handleKey(board, key);
+                },
+                None => { more = false; },
+            }
         }
     }
 }

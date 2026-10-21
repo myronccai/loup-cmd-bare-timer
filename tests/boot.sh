@@ -4,11 +4,13 @@
 # expected ones.
 #
 # Each case is a list of steps: `wait:TEXT` waits (up to STEP_TIMEOUT
-# seconds) until TEXT appears in the output, `send:KEYS` types KEYS. In
-# transcripts, instruction addresses (`rip 0x...`, `pc 0x...`) and the tick
-# count at quit time are replaced by N, since they differ between builds and
-# runs, and heartbeats after the third are dropped (a slow machine may print
-# one more before the last key arrives).
+# seconds) until TEXT appears in the output, `send:KEYS` types KEYS as they
+# are, `sendesc:KEYS` types them after printf %b escapes (`\0` is a NUL). In
+# transcripts, instruction addresses (`rip 0x...`, `pc 0x...`), the tick
+# count at quit time and the ticks in the key journal are replaced by N,
+# since they differ between builds and runs, and heartbeats after the third
+# are dropped (a slow machine may print one more before the last key
+# arrives).
 #
 # usage: tests/boot.sh [BUILD_DIR]      (default: build)
 #        UPDATE=1 tests/boot.sh         rewrite tests/expected/ from this run
@@ -55,6 +57,9 @@ case_() {
             send:*)
                 printf '%s' "${step#send:}" >&3
                 ;;
+            sendesc:*)
+                printf '%b' "${step#sendesc:}" >&3
+                ;;
         esac
         [ -n "$why" ] && break
     done
@@ -66,6 +71,7 @@ case_() {
     local status=$?
     tr -d '\r' < "$raw" | sed -E -e 's/(rip|pc) 0x[0-9a-f]+/\1 0xN/' \
         -e 's/^quit after [0-9]+ ticks/quit after N ticks/' \
+        -e 's/^  tick [0-9]+: /  tick N: /' \
         -e '/^heartbeat ([4-9]|[1-9][0-9]+):/d' > "$out"
     if [ -n "$why" ]; then
         echo "FAIL $name: $why"
@@ -94,8 +100,11 @@ case_() {
 }
 
 # Three heartbeats, a trap the kernel survives, an ignored key, quit.
+# A NUL is a key like any other: it must be reported, not taken for "no
+# key". `r` then replays the journal of every key taken so far.
 TRAP_THEN_QUIT=("wait:heartbeat 3:" "send:t" "wait:trap 1:" "send:x" "wait:does nothing"
-    "send:q" "wait:quit after")
+    "sendesc:\\0" "wait:key 0x0 does nothing" "send:r" "wait:journal:" "send:q"
+    "wait:quit after")
 
 # Each fault ends in the panic handler, with the fault's details.
 case_ heartbeat-x86_64 x86_64 33 "${TRAP_THEN_QUIT[@]}"
