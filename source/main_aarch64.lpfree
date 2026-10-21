@@ -2,8 +2,22 @@
 
 # The aarch64 board for `qemu-system-aarch64 -M virt -kernel`: the entry
 # stub, the interrupt set-up (vector table, GICv2, the generic timer, the
-# PL011's receive interrupt), and the panic handler. The main loop is
-# timer.app, shared with the x86_64 board.
+# PL011's receive interrupt), and the panic handler.
+#
+# Runtime: freestanding, aarch64 board only. The entry file of
+# boards/aarch64/package.lppkg: `make build` compiles it, with the arm/ and
+# shared timer/ modules it imports, into the bare-metal image
+# build/timer-aarch64.elf (`loup build --target freestanding --arch aarch64
+# boards/aarch64`, linked by linker/aarch64.ld); there is no operating
+# system, runtime library, heap or exceptions. `make boot` boots it on
+# QEMU's virt machine (Cortex-A53, -semihosting), waits for heartbeats,
+# presses t, u, p, a or q on the PL011 and compares the transcripts and exit
+# statuses with tests/expected/; `make run ARCH=aarch64` boots it on this
+# terminal. `make check` type-checks it with Stage0 from boards/aarch64.
+#
+# Structure: setup() (vectors, GIC, timer, then the UART's interrupt), the
+# CPU hooks the Board carries, kernelMain, the panic handler, then _start.
+# The main loop is timer/app.lpfree, shared with the x86_64 board.
 
 from appinfo import (STATUS_PANIC);
 from timer.app import (TICK_HZ, run);

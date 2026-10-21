@@ -1,11 +1,21 @@
 @mode(freestanding)
 
-# Name, version and exit statuses of the image.
+# Name, version and exit statuses of the timer image.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/timer-x86_64.elf and
+# build/timer-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) boots each image under QEMU,
+# waits for heartbeats and presses keys; `make check` type-checks it with
+# Stage0 through each board's entry file.
 
 pub const APP_NAME: string = "loup-cmd-bare-timer";
 pub const APP_VERSION: string = "0.1.0";
 
-# The status the image reports when it stops. It writes `0x10 | status` to
-# isa-debug-exit, so QEMU exits with 33 (quit) or 37 (panic).
+# The status the image reports when it stops. Each board turns it into a
+# QEMU exit status: x86_64 writes `0x10 | status` to isa-debug-exit (QEMU
+# exits with 33 on quit, 37 on a panic), aarch64 passes it to semihosting
+# SYS_EXIT (0 or 2).
 pub const STATUS_OK: uint8 = 0u8;
 pub const STATUS_PANIC: uint8 = 2u8;

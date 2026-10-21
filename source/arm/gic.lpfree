@@ -2,6 +2,13 @@
 
 # The GICv2 interrupt controller of QEMU's virt machine: the distributor
 # routes interrupts, the CPU interface hands them to this core.
+#
+# Runtime: freestanding, aarch64 board only. Imported by
+# main_aarch64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-aarch64.elf (`loup build --target freestanding --arch
+# aarch64 boards/aarch64`); the x86_64 image never contains it. It runs when
+# `make boot` boots that image on QEMU's virt machine (Cortex-A53); `make
+# check` type-checks it with Stage0 from boards/aarch64.
 
 const GICD: uint64 = 0x08000000u64;   # distributor
 const GICC: uint64 = 0x08010000u64;   # CPU interface

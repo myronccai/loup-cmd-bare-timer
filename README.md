@@ -140,7 +140,7 @@ the fault and panics (QEMU exits with 37):
 ```text
 heartbeat 1: uptime 00:00:01 (100 ticks)
 reading unmapped memory at 0x80000000
-PANIC: reached an `unreachable` expression at x86/isr.lpfree:96
+PANIC: reached an `unreachable` expression at x86/isr.lpfree:110
   fault: #PF page fault (vector 14), error 0x0, rip 0x103b6c, address 0x80000000
 ```
 
@@ -167,7 +167,7 @@ exits with 2):
 ```text
 heartbeat 1: uptime 00:00:01 (100 ticks)
 alignment checks on; reading a word at 0x44000001
-PANIC: reached an `unreachable` expression at arm/isr.lpfree:67
+PANIC: reached an `unreachable` expression at arm/isr.lpfree:81
   fault: data abort (class 0x25), esr 0x96000021, pc 0x40082f08, address 0x44000001
 ```
 

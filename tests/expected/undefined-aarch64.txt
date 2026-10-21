@@ -6,5 +6,5 @@ keys: t trap, u undefined instruction, p data abort, a alignment fault, q quit
 interrupts on
 heartbeat 1: uptime 00:00:01 (100 ticks)
 executing udf #0
-PANIC: reached an `unreachable` expression at arm/isr.lpfree:67
+PANIC: reached an `unreachable` expression at arm/isr.lpfree:81
   fault: unknown reason (undefined instruction) (class 0x0), esr 0x2000000, pc 0xN

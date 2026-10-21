@@ -1,9 +1,19 @@
 @mode(freestanding)
 
-# The console, independent of the board: the board attaches its UART's
-# polled byte writer at boot. Nothing here is called from an interrupt
-# handler (handlers record, the main loop prints); the panic handler uses it
-# because it needs no buffer and takes no lock.
+# The timer kernel's console, independent of the board: the board attaches
+# its UART's polled byte writer at boot.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/timer-x86_64.elf and
+# build/timer-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) boots each image under QEMU,
+# waits for heartbeats and presses keys; `make check` type-checks it with
+# Stage0 through each board's entry file.
+#
+# Nothing here is called from an interrupt handler (handlers record, the
+# main loop prints); the panic handler uses it because it needs no buffer
+# and takes no lock.
 
 func discard(b: uint8): void {
 }

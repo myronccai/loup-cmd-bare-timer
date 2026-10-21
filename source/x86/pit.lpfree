@@ -1,7 +1,14 @@
 @mode(freestanding)
 
-# The 8254 programmable interval timer. Channel 0 counts down from a divisor
-# at 1,193,182 Hz and raises IRQ 0 each time it reaches zero.
+# The 8254 programmable interval timer. Channel 0 counts down from a
+# divisor at 1,193,182 Hz and raises IRQ 0 each time it reaches zero.
+#
+# Runtime: freestanding, x86_64 board only. Imported by
+# main_x86_64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-x86_64.elf (`loup build --target freestanding --arch
+# x86_64`); the aarch64 image never contains it. It runs when `make boot`
+# boots that image on QEMU's pc machine; `make check` type-checks it with
+# Stage0.
 
 from x86.port import (outb);
 

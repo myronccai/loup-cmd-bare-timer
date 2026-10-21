@@ -1,8 +1,21 @@
 @mode(freestanding)
 
-# State shared between the interrupt handlers and the main loop. Every
-# access goes through the atomic intrinsics: a handler can run between any
-# two instructions of the main loop.
+# State shared between the timer kernel's interrupt handlers and its main
+# loop. Every access goes through the atomic intrinsics: a handler can run
+# between any two instructions of the main loop.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/timer-x86_64.elf and
+# build/timer-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) boots each image under QEMU,
+# waits for heartbeats and presses keys; `make check` type-checks it with
+# Stage0 through each board's entry file.
+#
+# Structure: four records, each written on one side and read on the other:
+# the tick counter, the key ring (one producer, the UART handler; one
+# consumer, the main loop), the last trap, and the fault that stopped the
+# kernel, which the panic handler reports.
 
 const SEQ_CST: int = 5;
 

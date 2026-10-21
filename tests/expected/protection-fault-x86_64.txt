@@ -6,5 +6,5 @@ keys: t trap, d divide error, u invalid opcode, g protection fault, p page fault
 interrupts on
 heartbeat 1: uptime 00:00:01 (100 ticks)
 loading from a non-canonical address
-PANIC: reached an `unreachable` expression at x86/isr.lpfree:90
+PANIC: reached an `unreachable` expression at x86/isr.lpfree:104
   fault: #GP general protection fault (vector 13), error 0x0, rip 0xN

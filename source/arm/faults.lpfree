@@ -2,6 +2,13 @@
 
 # The trap and the faults the keys provoke on aarch64, and the report the
 # panic handler prints about the fault that stopped the kernel.
+#
+# Runtime: freestanding, aarch64 board only. Imported by
+# main_aarch64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-aarch64.elf (`loup build --target freestanding --arch
+# aarch64 boards/aarch64`); the x86_64 image never contains it. It runs when
+# `make boot` boots that image on QEMU's virt machine (Cortex-A53); `make
+# check` type-checks it with Stage0 from boards/aarch64.
 
 from timer.console import (puts, putHex);
 from timer.state import (hasFault, faultKind, faultCodeValue, faultPcValue, faultAddress);

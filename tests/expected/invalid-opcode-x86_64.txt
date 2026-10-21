@@ -6,5 +6,5 @@ keys: t trap, d divide error, u invalid opcode, g protection fault, p page fault
 interrupts on
 heartbeat 1: uptime 00:00:01 (100 ticks)
 executing ud2
-PANIC: reached an `unreachable` expression at x86/isr.lpfree:78
+PANIC: reached an `unreachable` expression at x86/isr.lpfree:92
   fault: #UD invalid opcode (vector 6), error 0x0, rip 0xN

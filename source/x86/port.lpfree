@@ -1,6 +1,14 @@
 @mode(freestanding)
 
-# x86 port I/O. Interrupt-safe: one instruction each, no state.
+# x86 port I/O for the timer kernel. Interrupt-safe: one instruction each,
+# no state.
+#
+# Runtime: freestanding, x86_64 board only. Imported by
+# main_x86_64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-x86_64.elf (`loup build --target freestanding --arch
+# x86_64`); the aarch64 image never contains it. It runs when `make boot`
+# boots that image on QEMU's pc machine; `make check` type-checks it with
+# Stage0.
 
 @interruptSafe
 @unsafe("port I/O: writes an x86 I/O port")

@@ -1,5 +1,14 @@
 @mode(freestanding)
 
+# Leaving QEMU on aarch64 through semihosting SYS_EXIT.
+#
+# Runtime: freestanding, aarch64 board only. Imported by
+# main_aarch64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-aarch64.elf (`loup build --target freestanding --arch
+# aarch64 boards/aarch64`); the x86_64 image never contains it. It runs when
+# `make boot` boots that image on QEMU's virt machine (Cortex-A53); `make
+# check` type-checks it with Stage0 from boards/aarch64.
+
 # Semihosting SYS_EXIT (operation 0x18) with ADP_Stopped_ApplicationExit and
 # a status: QEMU, started with -semihosting, exits with that status. The
 # trap is `hlt #0xf000`, written as its encoding because the default back

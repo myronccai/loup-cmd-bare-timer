@@ -1,9 +1,20 @@
 @mode(freestanding)
 
-# The kernel's main loop, the same on every board: let the board set up its
-# interrupts, turn them on, then sleep until each interrupt wakes it. It
-# prints a heartbeat every second of uptime and acts on the keys the UART
-# handler queued.
+# The timer kernel's main loop, the same on every board: let the board set
+# up its interrupts, turn them on, then sleep until each interrupt wakes it.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/timer-x86_64.elf and
+# build/timer-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) boots each image under QEMU,
+# waits for heartbeats and presses keys; `make check` type-checks it with
+# Stage0 through each board's entry file.
+#
+# Structure: the interrupt handlers only count ticks and queue keys
+# (timer/state.lpfree); everything visible happens here, after each wake-up:
+# a heartbeat for every second of uptime the tick count has passed, then
+# one action per queued key (trap, fault, quit).
 
 from appinfo import (APP_NAME, APP_VERSION, STATUS_OK);
 from timer.board import (Board);

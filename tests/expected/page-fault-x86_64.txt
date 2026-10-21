@@ -6,5 +6,5 @@ keys: t trap, d divide error, u invalid opcode, g protection fault, p page fault
 interrupts on
 heartbeat 1: uptime 00:00:01 (100 ticks)
 reading unmapped memory at 0x80000000
-PANIC: reached an `unreachable` expression at x86/isr.lpfree:96
+PANIC: reached an `unreachable` expression at x86/isr.lpfree:110
   fault: #PF page fault (vector 14), error 0x0, rip 0xN, address 0x80000000

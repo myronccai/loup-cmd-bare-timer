@@ -1,6 +1,14 @@
 @mode(freestanding)
 
-# The interrupt descriptor table: 256 gates of 16 bytes, loaded with lidt.
+# The x86_64 interrupt descriptor table: 256 gates of 16 bytes, loaded
+# with lidt.
+#
+# Runtime: freestanding, x86_64 board only. Imported by
+# main_x86_64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-x86_64.elf (`loup build --target freestanding --arch
+# x86_64`); the aarch64 image never contains it. It runs when `make boot`
+# boots that image on QEMU's pc machine; `make check` type-checks it with
+# Stage0.
 
 # What an x86_64 CPU pushes on interrupt entry (after the error code, which
 # the @interrupt trampoline passes separately).
@@ -25,6 +33,9 @@ var idtr: buffer[uint64, 2];
 
 var gatesSet: int = 0;
 
+# A gate is two quadwords. The low one holds handler bits 0-15, the code
+# selector, the type and present bits (IST 0) and handler bits 16-31 at the
+# top; the high one holds handler bits 32-63.
 func setGateWith(vector: int, handler: uint64, kind: uint64): void {
     let low = (handler & 0xFFFFu64) | (KERNEL_CS << 16u64) | (kind << 40u64)
         | (((handler >> 16u64) & 0xFFFFu64) << 48u64);
@@ -57,6 +68,8 @@ func setIdtr(i: int, v: uint64): void {
 }
 
 pub func loadIdt(): void {
+    # The 10-byte pseudo-descriptor across two quadwords: the limit
+    # (256 gates * 16 bytes - 1 = 4095), then the 64-bit base.
     let base = addressOf(idt);
     setIdtr(0, 4095u64 | (base << 16u64));
     setIdtr(1, base >> 48u64);

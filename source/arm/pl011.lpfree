@@ -1,7 +1,14 @@
 @mode(freestanding)
 
-# The PL011 UART of QEMU's virt machine: polled output, and an interrupt
-# (INTID 33 at the GIC) for every byte received.
+# The PL011 UART of QEMU's virt machine for the aarch64 timer kernel: polled
+# output, and an interrupt (INTID 33 at the GIC) for every byte received.
+#
+# Runtime: freestanding, aarch64 board only. Imported by
+# main_aarch64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-aarch64.elf (`loup build --target freestanding --arch
+# aarch64 boards/aarch64`); the x86_64 image never contains it. It runs when
+# `make boot` boots that image on QEMU's virt machine (Cortex-A53); `make
+# check` type-checks it with Stage0 from boards/aarch64.
 
 const UART0: uint64 = 0x09000000u64;
 const UART_DR: uint64 = 0x00u64;      # data

@@ -1,5 +1,14 @@
 @mode(freestanding)
 
+# Leaving QEMU on x86_64 through the isa-debug-exit device.
+#
+# Runtime: freestanding, x86_64 board only. Imported by
+# main_x86_64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-x86_64.elf (`loup build --target freestanding --arch
+# x86_64`); the aarch64 image never contains it. It runs when `make boot`
+# boots that image on QEMU's pc machine; `make check` type-checks it with
+# Stage0.
+
 from x86.port import (outb);
 
 const DEBUG_EXIT_PORT: uint16 = 0xF4u16;

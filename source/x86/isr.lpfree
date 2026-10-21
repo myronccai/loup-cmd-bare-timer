@@ -1,10 +1,24 @@
 @mode(freestanding)
 
-# The interrupt handlers. Each is an @interrupt function: the compiler wraps
-# its body in a trampoline that saves registers and returns with iretq.
-# Everything a handler calls must be @interruptSafe, which the checker
-# enforces. Handlers only record what happened; the main loop does the
-# printing. The fault handlers record the fault and then panic.
+# The x86_64 interrupt and exception handlers, and the code that installs
+# them in the IDT.
+#
+# Runtime: freestanding, x86_64 board only. Imported by
+# main_x86_64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-x86_64.elf (`loup build --target freestanding --arch
+# x86_64`); the aarch64 image never contains it. It runs when `make boot`
+# boots that image on QEMU's pc machine; `make check` type-checks it with
+# Stage0.
+# tests/expected/*-x86_64.txt contain the line numbers of the
+# `unreachable` statements below: a line added above them means updating
+# those files and the README.
+#
+# Structure: device interrupts (PIT, COM1, spurious IRQ 7), exceptions
+# (int3, which resumes, then the faults, which panic), then installing
+# them. Each handler is an @interrupt function: the compiler wraps its body
+# in a trampoline that saves registers and returns with iretq. Everything a
+# handler calls must be @interruptSafe, which the checker enforces.
+# Handlers only record what happened; the main loop does the printing.
 
 from x86.idt import (InterruptFrame, setInterruptGate, setTrapGate);
 from x86.pic import (IRQ_BASE, IRQ_TIMER, IRQ_COM1, picEoi);

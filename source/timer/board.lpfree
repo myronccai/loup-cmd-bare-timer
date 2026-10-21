@@ -1,5 +1,16 @@
 @mode(freestanding)
 
+# The Board record: the whole interface between a board file
+# (main_x86_64.lpfree, main_aarch64.lpfree) and the shared main loop.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/timer-x86_64.elf and
+# build/timer-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) boots each image under QEMU,
+# waits for heartbeats and presses keys; `make check` type-checks it with
+# Stage0 through each board's entry file.
+
 # What a board gives the arch-neutral main loop: names for the console, and
 # the operations that differ per CPU, as function values.
 pub struct Board {

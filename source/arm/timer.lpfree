@@ -2,6 +2,13 @@
 
 # The EL1 virtual timer of the Arm generic timer. CNTV_TVAL_EL0 counts down
 # at CNTFRQ_EL0 Hz; at zero the timer raises INTID 27 and must be re-armed.
+#
+# Runtime: freestanding, aarch64 board only. Imported by
+# main_aarch64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-aarch64.elf (`loup build --target freestanding --arch
+# aarch64 boards/aarch64`); the x86_64 image never contains it. It runs when
+# `make boot` boots that image on QEMU's virt machine (Cortex-A53); `make
+# check` type-checks it with Stage0 from boards/aarch64.
 
 var reload: uint64 = 0u64;
 

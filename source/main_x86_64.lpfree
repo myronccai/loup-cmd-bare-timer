@@ -3,7 +3,21 @@
 # The x86_64 board for `qemu-system-x86_64 -kernel`: the boot headers QEMU
 # looks for, the 32-bit entry that switches to long mode, the interrupt
 # set-up (IDT, 8259s, PIT, COM1's receive interrupt), and the panic handler.
-# The main loop is timer.app, shared with the aarch64 board.
+#
+# Runtime: freestanding, x86_64 board only. The entry file of package.lppkg:
+# `make build` compiles it, with the x86/ and shared timer/ modules it
+# imports, into the bare-metal image build/timer-x86_64.elf (`loup build
+# --target freestanding --arch x86_64`, linked at 1 MiB by
+# linker/x86_64.ld); there is no operating system, runtime library, heap or
+# exceptions. `make boot` boots it on QEMU's pc machine (scripts/qemu.sh),
+# waits for heartbeats, presses t, d, u, g, p or q on COM1 and compares the
+# transcripts and exit statuses with tests/expected/; `make run` boots it on
+# this terminal. `make check` type-checks it with Stage0.
+#
+# Structure: setup() (IDT, 8259s, PIT, in that order, before interrupts are
+# enabled), the CPU hooks the Board carries, kernelMain, the panic handler,
+# then the boot headers and _start. The main loop is timer/app.lpfree,
+# shared with the aarch64 board.
 
 from appinfo import (STATUS_PANIC);
 from timer.app import (TICK_HZ, run);
@@ -135,10 +149,15 @@ func _start(): void {
     asm {
         ".code32"
         "mov esp, 0x90000"
+        # PML4[0] -> the PDPT at 0x71000, PDPT[0] -> the page directory at
+        # 0x72000 (low bits 0x3: present, writable). QEMU's RAM starts
+        # zeroed, so every other entry of those tables is "not present".
         "mov dword ptr [0x70000], 0x71003"
         "mov dword ptr [0x70004], 0"
         "mov dword ptr [0x71000], 0x72003"
         "mov dword ptr [0x71004], 0"
+        # 512 page-directory entries of 2 MiB each (0x83: present,
+        # writable, page size): virtual = physical for the first 1 GiB.
         "mov edi, 0x72000"
         "mov eax, 0x83"
         "mov ecx, 512"
@@ -149,6 +168,8 @@ func _start(): void {
         "add edi, 8"
         "dec ecx"
         "jnz fill_pd"
+        # CR3 = the PML4; CR4.PAE; EFER.LME (MSR 0xC0000080, bit 8); then
+        # CR0.PG and CR0.PE together turn paging on, and long mode with it.
         "mov eax, 0x70000"
         "mov cr3, eax"
         "mov eax, cr4"
@@ -161,6 +182,8 @@ func _start(): void {
         "mov eax, cr0"
         "or eax, 0x80000001"
         "mov cr0, eax"
+        # The CPU still runs 32-bit code until a far jump loads the 64-bit
+        # code segment from the GDT.
         "lgdt [gdt_ptr]"
         "jmp 0x08, long_mode"
         ".code64"
@@ -173,6 +196,7 @@ func _start(): void {
         "call kernelMain"
         "cli"
         "hlt"
+        # The GDT: the null descriptor, 64-bit code (L bit), then data.
         ".align 8"
         "gdt_start:"
         ".quad 0x0000000000000000"

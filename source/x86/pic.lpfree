@@ -1,8 +1,15 @@
 @mode(freestanding)
 
-# The two 8259 interrupt controllers of a PC. At reset their 16 lines arrive
-# at vectors 8-15 and 0x70-0x77, on top of the CPU's exception vectors, so
-# they are remapped to 0x20-0x2F.
+# The two 8259 interrupt controllers of a PC. At reset their 16 lines
+# arrive at vectors 8-15 and 0x70-0x77, on top of the CPU's exception
+# vectors, so they are remapped to 0x20-0x2F.
+#
+# Runtime: freestanding, x86_64 board only. Imported by
+# main_x86_64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-x86_64.elf (`loup build --target freestanding --arch
+# x86_64`); the aarch64 image never contains it. It runs when `make boot`
+# boots that image on QEMU's pc machine; `make check` type-checks it with
+# Stage0.
 
 from x86.port import (outb);
 
@@ -19,12 +26,18 @@ const EOI: uint8 = 0x20u8;
 # ICW1-ICW4: edge-triggered, cascaded, 8086 mode; master at 0x20, slave at
 # 0x28 on the master's line 2. Then the masks: a 1 bit disables a line.
 pub func picRemap(masterMask: uint8, slaveMask: uint8): void {
+    # ICW1 on the command ports starts the sequence; ICW2-ICW4 follow on
+    # the data ports, in this order.
     outb(MASTER_CMD, 0x11u8);
     outb(SLAVE_CMD, 0x11u8);
+    # ICW2: the vector of each controller's line 0.
     outb(MASTER_DATA, 0x20u8);
     outb(SLAVE_DATA, 0x28u8);
+    # ICW3: the master's line 2 has a slave (a bit mask); the slave's
+    # cascade identity is 2 (a number).
     outb(MASTER_DATA, 0x04u8);
     outb(SLAVE_DATA, 0x02u8);
+    # ICW4: 8086 mode, normal end of interrupt.
     outb(MASTER_DATA, 0x01u8);
     outb(SLAVE_DATA, 0x01u8);
     outb(MASTER_DATA, masterMask);

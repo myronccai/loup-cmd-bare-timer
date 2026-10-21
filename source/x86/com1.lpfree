@@ -1,7 +1,14 @@
 @mode(freestanding)
 
-# The 16550 UART at COM1 (I/O port 0x3F8): polled output, and an interrupt
-# (IRQ 4) for every byte received.
+# The 16550 UART at COM1 (I/O port 0x3F8) for the x86_64 timer kernel:
+# polled output, and an interrupt (IRQ 4) for every byte received.
+#
+# Runtime: freestanding, x86_64 board only. Imported by
+# main_x86_64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-x86_64.elf (`loup build --target freestanding --arch
+# x86_64`); the aarch64 image never contains it. It runs when `make boot`
+# boots that image on QEMU's pc machine; `make check` type-checks it with
+# Stage0.
 
 from x86.port import (outb, inb);
 

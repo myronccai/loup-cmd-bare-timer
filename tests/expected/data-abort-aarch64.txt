@@ -6,5 +6,5 @@ keys: t trap, u undefined instruction, p data abort, a alignment fault, q quit
 interrupts on
 heartbeat 1: uptime 00:00:01 (100 ticks)
 reading the unmapped address 0x9fff000
-PANIC: reached an `unreachable` expression at arm/isr.lpfree:67
+PANIC: reached an `unreachable` expression at arm/isr.lpfree:81
   fault: data abort (class 0x25), esr 0x96000010, pc 0xN, address 0x9fff000

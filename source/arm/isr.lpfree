@@ -1,11 +1,25 @@
 @mode(freestanding)
 
-# The exception vector table and the handlers. AArch64 has one entry per
-# kind of exception (synchronous, IRQ, FIQ, SError) and per origin; the
-# kernel runs at EL1 on SP_EL1, so only "current EL, SPx" is used: the
-# synchronous entry (traps and faults) and the IRQ entry (the GIC). Each
-# entry branches to an @interrupt function, whose trampoline saves the
-# registers, passes the frame and returns with eret.
+# The aarch64 exception vector table and handlers, for the timer kernel.
+#
+# Runtime: freestanding, aarch64 board only. Imported by
+# main_aarch64.lpfree, so `make build` compiles it only into the bare-metal
+# image build/timer-aarch64.elf (`loup build --target freestanding --arch
+# aarch64 boards/aarch64`); the x86_64 image never contains it. It runs when
+# `make boot` boots that image on QEMU's virt machine (Cortex-A53); `make
+# check` type-checks it with Stage0 from boards/aarch64.
+# tests/expected/*-aarch64.txt contain the line number of the
+# `unreachable` in isrSync: a line added above it means updating those
+# files and the README.
+#
+# Structure: AArch64 has one vector entry per kind of exception
+# (synchronous, IRQ, FIQ, SError) and per origin; the kernel runs at EL1 on
+# SP_EL1, so only "current EL, SPx" is used: the synchronous entry (traps
+# and faults) and the IRQ entry (the GIC). Each entry branches to an
+# @interrupt function, whose trampoline saves the registers, passes the
+# frame and returns with eret. The file holds the frame, the IRQ handler,
+# the synchronous handler, the catch-all for every other entry, the table
+# itself, and installVectors().
 
 from arm.gic import (INTID_VTIMER, INTID_UART0, INTID_SPURIOUS, gicAcknowledge, gicEnd);
 from arm.timer import (timerRearm);
@@ -99,6 +113,7 @@ func vecUnexpected(): void {
 @unsafe("naked: the exception vector table; each 128-byte entry is one branch")
 func vectorTable(): void {
     asm {
+        # Current EL with SP_EL0: synchronous, IRQ, FIQ, SError (unused).
         "b vecUnexpected"
         ".balign 128"
         "b vecUnexpected"
@@ -107,6 +122,7 @@ func vectorTable(): void {
         ".balign 128"
         "b vecUnexpected"
         ".balign 128"
+        # Current EL with SP_ELx, where this kernel runs.
         "b isrSync"
         ".balign 128"
         "b isrIrq"
@@ -115,6 +131,7 @@ func vectorTable(): void {
         ".balign 128"
         "b vecUnexpected"
         ".balign 128"
+        # Lower EL in AArch64, then in AArch32: there is no lower-EL code.
         "b vecUnexpected"
         ".balign 128"
         "b vecUnexpected"
